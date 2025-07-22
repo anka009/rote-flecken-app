@@ -6,6 +6,18 @@ from PIL import Image
 st.title("🔴 Rote Flecken Zähler")
 
 uploaded_file = st.file_uploader("Lade ein Bild hoch", type=["jpg", "jpeg", "png", "tif", "tiff"])
+from PIL import Image, ImageSequence
+
+if uploaded_file is not None:
+    tiff_image = Image.open(uploaded_file)
+    
+    # Alle Seiten extrahieren
+    frames = [page.convert("RGB") for page in ImageSequence.Iterator(tiff_image)]
+    
+    # Wähle eine Seite (z.B. die erste)
+    image = frames[0]
+page_index = st.slider("Seite auswählen", 0, len(frames)-1, 0)
+image = frames[page_index]
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
