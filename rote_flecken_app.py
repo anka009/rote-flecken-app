@@ -18,6 +18,20 @@ if uploaded_file is not None:
     image = frames[0]
 page_index = st.slider("Seite auswählen", 0, len(frames)-1, 0)
 image = frames[page_index]
+from PIL import Image, ImageSequence
+
+if uploaded_file is not None:
+    tiff_image = Image.open(uploaded_file)
+    
+    # Seiten extrahieren, funktioniert auch für JPG & PNG
+    try:
+        frames = [page.convert("RGB") for page in ImageSequence.Iterator(tiff_image)]
+    except:
+        frames = [tiff_image.convert("RGB")]
+
+    # Auswahl-Slider anzeigen
+    page_index = st.slider("Seite auswählen", 0, len(frames)-1, 0)
+    image = frames[page_index]
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
