@@ -5,7 +5,7 @@ from PIL import Image
 
 st.title("🔴 Rote Flecken Zähler")
 
-uploaded_file = st.file_uploader("Lade ein Bild hoch", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Lade ein Bild hoch", type=["jpg", "jpeg", "png", "tif", "tiff"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
