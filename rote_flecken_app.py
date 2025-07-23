@@ -48,8 +48,8 @@ mask3 = cv2.inRange(hsv, lower_brown, upper_brown)
 combined_mask = cv2.bitwise_or(mask1, mask2)
 mask = cv2.bitwise_or(combined_mask, mask3)
        
-            kernel = np.ones((5, 5), np.uint8)
-            mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+kernel = np.ones((5, 5), np.uint8)
+mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
             contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             min_area = 50
