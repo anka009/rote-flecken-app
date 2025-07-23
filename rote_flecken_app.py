@@ -57,19 +57,19 @@ contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_S
 min_area = 50
 filtered = [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
 
-            fleckenzahl = len(filtered)
-            fläche_pixel = sum(cv2.contourArea(cnt) for cnt in filtered)
-            fläche_mm2 = fläche_pixel / (pixels_per_mm ** 2)
+fleckenzahl = len(filtered)
+fläche_pixel = sum(cv2.contourArea(cnt) for cnt in filtered)
+fläche_mm2 = fläche_pixel / (pixels_per_mm ** 2)
 
-            st.success(f"🔴 Flecken gefunden: {fleckenzahl}")
-            st.info(f"📐 Fläche: {fläche_pixel:.2f} Pixel² ({fläche_mm2:.2f} mm²)")
+st.success(f"🔴 Flecken gefunden: {fleckenzahl}")
+st.info(f"📐 Fläche: {fläche_pixel:.2f} Pixel² ({fläche_mm2:.2f} mm²)")
 
-            total_flecken += fleckenzahl
-            total_pixel_area += fläche_pixel
+total_flecken += fleckenzahl
+total_pixel_area += fläche_pixel
 
-            output = image_np.copy()
-            cv2.drawContours(output, filtered, -1, (0, 255, 0), 2)
-            st.image(output, caption="Markierte Flecken", channels="RGB")
+output = image_np.copy()
+cv2.drawContours(output, filtered, -1, (0, 255, 0), 2)
+st.image(output, caption="Markierte Flecken", channels="RGB")
 
     # 🔢 Gesamtsumme anzeigen
     total_mm2 = total_pixel_area / (pixels_per_mm ** 2)
