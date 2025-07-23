@@ -38,10 +38,16 @@ if uploaded_files:
             upper_red1 = np.array([10, 255, 255])
             lower_red2 = np.array([170, 70, 50])
             upper_red2 = np.array([180, 255, 255])
-            mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
-            mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
-            mask = cv2.bitwise_or(mask1, mask2)
+            # Erweiterung für rotbraune Farben
+lower_brown = np.array([10, 100, 20])
+upper_brown = np.array([30, 255, 200])
+mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+mask3 = cv2.inRange(hsv, lower_brown, upper_brown)
 
+combined_mask = cv2.bitwise_or(mask1, mask2)
+mask = cv2.bitwise_or(combined_mask, mask3)
+       
             kernel = np.ones((5, 5), np.uint8)
             mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
