@@ -71,9 +71,9 @@ output = image_np.copy()
 cv2.drawContours(output, filtered, -1, (0, 255, 0), 2)
 st.image(output, caption="Markierte Flecken", channels="RGB")
 
-    # 🔢 Gesamtsumme anzeigen
-    total_mm2 = total_pixel_area / (pixels_per_mm ** 2)
-    st.markdown("---")
-    st.subheader("📊 Gesamtanalyse")
-    st.success(f"🔴 Gesamtanzahl Flecken: {total_flecken}")
-    st.info(f"📐 Gesamtfläche: {total_pixel_area:.2f} Pixel² ({total_mm2:.2f} mm²)")
+# 🔢 Gesamtsumme anzeigen
+total_mm2 = total_pixel_area / (pixels_per_mm ** 2)
+st.markdown("---")
+st.subheader("📊 Gesamtanalyse")
+st.success(f"🔴 Gesamtanzahl Flecken: {total_flecken}")
+st.info(f"📐 Gesamtfläche: {total_pixel_area:.2f} Pixel² ({total_mm2:.2f} mm²)")
