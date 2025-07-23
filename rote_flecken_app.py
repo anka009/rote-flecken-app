@@ -32,28 +32,30 @@ if uploaded_files:
                 st.subheader(f"📄 Seite {i+1}")
 
             image_np = np.array(frame)
-
-            hsv = cv2.cvtColor(image_np, cv2.COLOR_RGB2HSV)
-            lower_red1 = np.array([0, 70, 50])
-            upper_red1 = np.array([10, 255, 255])
-            lower_red2 = np.array([170, 70, 50])
-            upper_red2 = np.array([180, 255, 255])
-            # Erweiterung für rotbraune Farben
+# Konvertiere RGB zu HSV
+hsv = cv2.cvtColor(image_np, cv2.COLOR_RGB2HSV)
+# Farbgrenzen definieren
+lower_red1 = np.array([0, 70, 50])
+upper_red1 = np.array([10, 255, 255])
+lower_red2 = np.array([170, 70, 50])
+upper_red2 = np.array([180, 255, 255])
+# Erweiterung für rotbraune Farben
 lower_brown = np.array([10, 100, 20])
 upper_brown = np.array([30, 255, 200])
+# Masken erstellen
 mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
 mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
 mask3 = cv2.inRange(hsv, lower_brown, upper_brown)
-
+# Alle Masken kombinieren
 combined_mask = cv2.bitwise_or(mask1, mask2)
 mask = cv2.bitwise_or(combined_mask, mask3)
-       
+# Maske bereinigen
 kernel = np.ones((5, 5), np.uint8)
 mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-            contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            min_area = 50
-            filtered = [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
+# Konturen finden
+contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+min_area = 50
+filtered = [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
 
             fleckenzahl = len(filtered)
             fläche_pixel = sum(cv2.contourArea(cnt) for cnt in filtered)
