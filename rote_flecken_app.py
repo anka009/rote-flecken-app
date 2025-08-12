@@ -72,7 +72,7 @@ if uploaded_file:
 
     manual_thresh = st.sidebar.slider(
         "Threshold-Wert", 0, 255,
-        auto_params.get("threshold", 128) if auto_params else 128
+        int(auto_params.get("threshold", 128)) if auto_params else 128
     )
 
     rgb_color = tuple(int(color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
