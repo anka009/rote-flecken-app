@@ -3,43 +3,53 @@ from PIL import Image, ImageDraw
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-# Dummy-Bild erzeugen
-image = Image.new("RGB", (600, 400), "white")
-draw = ImageDraw.Draw(image)
+st.set_page_config(layout="wide")
+st.title("🩸 Rote Flecken Gruppierung")
 
-# Beispielpunkte (automatisch erkannte + manuelle)
-coords = np.random.randint(50, 550, size=(100, 2))
-if "punkte" not in st.session_state:
-    st.session_state.punkte = []
+# 📤 Bild-Upload
+uploaded_file = st.file_uploader("Bild hochladen", type=["jpg", "png", "jpeg"])
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
+    draw = ImageDraw.Draw(image)
 
-# Layout: Bild links, Regler rechts
-col_img, col_ctrl = st.columns([3, 1])
-with col_ctrl:
-    kontrast = st.slider("🌓 Kontrast", 0.5, 3.0, 1.0, 0.1)
-    radius = st.slider("📏 Markierungsradius", 5, 30, 10)
-    threshold = st.slider("🎚️ Schwellenwert (Helligkeit)", 0, 255, 100)
-    gruppen_radius = st.slider("📏 Gruppierungsradius", 10, 100, 30)
+    # Dummy-Erkennung (ersetzen durch echte Analyse)
+    coords = np.random.randint(50, min(image.size)-50, size=(100, 2))
 
-# Punkte kombinieren
-all_coords = np.array(st.session_state.punkte + list(coords))
+    if "punkte" not in st.session_state:
+        st.session_state.punkte = []
 
-# Gruppierung mit DBSCAN
-clustering = DBSCAN(eps=gruppen_radius, min_samples=1).fit(all_coords)
-labels = clustering.labels_
-unique_groups = len(set(labels))
+    # 📐 Layout: Bild links, Regler rechts
+    col_img, col_ctrl = st.columns([3, 1])
+    with col_ctrl:
+        radius = st.slider("📏 Markierungsradius", 5, 30, 10)
+        gruppen_radius = st.slider("📏 Gruppierungsradius", 10, 100, 30)
 
-# Farben für Gruppen
-farben_gruppen = ["red", "green", "blue", "orange", "purple", "cyan", "magenta", "yellow"]
+    # 🔄 Punkte kombinieren
+    all_coords = np.array(st.session_state.punkte + list(coords))
 
-# Gruppen zeichnen
-for group_id in set(labels):
-    group_points = all_coords[labels == group_id]
-    for x, y in group_points:
-        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=farben_gruppen[group_id % len(farben_gruppen)])
+    # 🧠 Gruppierung
+    clustering = DBSCAN(eps=gruppen_radius, min_samples=1).fit(all_coords)
+    labels = clustering.labels_
+    unique_groups = len(set(labels))
 
-# Anzeige
-with col_img:
-    st.image(image, caption="🖼️ Bild mit Fleckengruppen", use_column_width=True)
+    # 🖍️ Gruppen umrahmen
+    for group_id in set(labels):
+        group_points = all_coords[labels == group_id]
+        if len(group_points) > 1:
+            x_mean = int(np.mean(group_points[:, 0]))
+            y_mean = int(np.mean(group_points[:, 1]))
+            r_group = int(np.max(np.linalg.norm(group_points - [x_mean, y_mean], axis=1))) + radius
+            draw.ellipse((x_mean - r_group, y_mean - r_group, x_mean + r_group, y_mean + r_group),
+                         outline="red", width=2)
 
-with col_ctrl:
-    st.metric("🧮 Gruppenanzahl", unique_groups)
+    # 🔘 Einzelpunkte markieren
+    for x, y in all_coords:
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline="black", width=1)
+
+    # 📊 Anzeige
+    with col_img:
+        st.image(image, caption="🖼️ Gruppierte Flecken", use_column_width=True)
+    with col_ctrl:
+        st.metric("🧮 Gruppenanzahl", unique_groups)
+else:
+    st.warning("Bitte lade ein Bild hoch, um die Flecken zu analysieren.")
