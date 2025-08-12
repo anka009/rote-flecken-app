@@ -3,3 +3,4 @@ git+https://github.com/bowespublishing/streamlit-drawable-canvas.git
 opencv-python-headless
 numpy
 Pillow
+scikit-learn
