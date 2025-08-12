@@ -2,27 +2,24 @@ import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-from io import BytesIO
-import base64
 from streamlit_drawable_canvas import st_canvas
 
-st.set_page_config(page_title="Zellkern-Zähler", layout="wide")
-st.title("🔬 Zellkern-Zähler mit Korrektur")
+# --- Hilfsfunktion: Immer PIL-Image erzeugen ---
+def to_pil(img):
+    if img is None:
+        return None
+    if isinstance(img, np.ndarray):
+        return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    if isinstance(img, Image.Image):
+        return img
+    raise TypeError("background_image muss PIL.Image oder NumPy sein")
 
-# -------- Hilfsfunktionen -------- #
-def pil_to_base64(img):
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    byte_im = buf.getvalue()
-    return "data:image/png;base64," + base64.b64encode(byte_im).decode()
-
-def detect_cells_opencv(pil_image, min_radius=5, max_radius=50):
-    img = np.array(pil_image.convert("RGB"))
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+# --- Blob Detection ---
+def detect_blobs(img, min_radius=5, max_radius=50):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     gray = cv2.medianBlur(gray, 5)
 
     params = cv2.SimpleBlobDetector_Params()
-    params.filterByColor = False
     params.filterByArea = True
     params.minArea = np.pi * (min_radius ** 2)
     params.maxArea = np.pi * (max_radius ** 2)
@@ -33,95 +30,70 @@ def detect_cells_opencv(pil_image, min_radius=5, max_radius=50):
     detector = cv2.SimpleBlobDetector_create(params)
     keypoints = detector.detect(gray)
 
-    points = [(int(k.pt[0]), int(k.pt[1])) for k in keypoints]
+    img_marked = cv2.drawKeypoints(img, keypoints, np.array([]),
+                                   (0, 0, 255),
+                                   cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
-    img_marked = img.copy()
-    for (x, y) in points:
-        cv2.circle(img_marked, (x, y), 8, (0, 255, 0), 2)
+    centers = [(int(k.pt[0]), int(k.pt[1])) for k in keypoints]
+    return img_marked, centers
 
-    return points, Image.fromarray(img_marked)
+# --- Streamlit Layout ---
+st.set_page_config(page_title="Zellkern-Analyse", layout="wide")
+st.title("🔬 Zellkern-Analyse & Interaktive Korrektur")
 
-# -------- Session State -------- #
-if "detected_points" not in st.session_state:
-    st.session_state.detected_points = []
-if "added_points" not in st.session_state:
-    st.session_state.added_points = []
-if "removed_points" not in st.session_state:
-    st.session_state.removed_points = []
-if "uploaded_img" not in st.session_state:
-    st.session_state.uploaded_img = None
+tab1, tab2 = st.tabs(["Analyse", "Korrektur"])
 
-# -------- Tabs -------- #
-tab1, tab2 = st.tabs(["📊 Analyse", "✏️ Korrektur"])
-
+# --- Tab 1: Analyse ---
 with tab1:
     uploaded_file = st.file_uploader("Bild hochladen", type=["png", "jpg", "jpeg", "tif", "tiff"])
-    min_r = st.slider("Minimaler Radius", 2, 50, 5)
-    max_r = st.slider("Maximaler Radius", 10, 200, 50)
 
     if uploaded_file:
-        pil_img = Image.open(uploaded_file)
-        st.session_state.uploaded_img = pil_img
+        pil_image = Image.open(uploaded_file).convert("RGB")
+        opencv_image = cv2.cvtColor(np.array(pil_image), cv2.COLOR_RGB2BGR)
 
-        detected_points, marked_img = detect_cells_opencv(pil_img, min_r, max_r)
-        st.session_state.detected_points = detected_points
+        min_r = st.slider("Min Radius (Pixel)", 1, 50, 5)
+        max_r = st.slider("Max Radius (Pixel)", 10, 200, 50)
 
-        st.image(marked_img, caption=f"Gefundene Zellkerne: {len(detected_points)}")
+        marked_img, detected_points = detect_blobs(opencv_image, min_r, max_r)
+        st.image(cv2.cvtColor(marked_img, cv2.COLOR_BGR2RGB), caption=f"Gefundene Zellkerne: {len(detected_points)}")
+        st.session_state["analysis_image"] = pil_image
+        st.session_state["detected_points"] = detected_points
     else:
-        st.info("Bitte ein Bild hochladen.")
+        st.info("Bitte zuerst ein Bild hochladen.")
 
+# --- Tab 2: Korrektur ---
 with tab2:
-    if st.session_state.uploaded_img is None:
-        st.warning("Bitte zuerst ein Bild in 'Analyse' hochladen.")
-    else:
-        st.markdown("**Grün = hinzufügen, Rot = löschen**")
+    if "analysis_image" in st.session_state:
+        base_img = to_pil(st.session_state["analysis_image"])
 
-        # Hintergrundbild als Base64
-        img_b64 = pil_to_base64(st.session_state.uploaded_img)
+        st.markdown("### ✏️ Interaktive Korrektur — oben **GRÜN** = hinzufügen, unten **ROT** = löschen")
 
-        # Canvas für Hinzufügen
+        # --- Punkte hinzufügen (Grün) ---
         canvas_add = st_canvas(
             fill_color="rgba(0,255,0,0.6)",
-            stroke_width=5,
-            background_image=img_b64,
-            update_streamlit=True,
-            height=st.session_state.uploaded_img.height,
-            width=st.session_state.uploaded_img.width,
+            stroke_width=10,
+            background_image=base_img,
+            height=base_img.height,
+            width=base_img.width,
             drawing_mode="point",
             key="canvas_add"
         )
 
-        # Canvas für Löschen
+        # --- Punkte löschen (Rot) ---
         canvas_remove = st_canvas(
             fill_color="rgba(255,0,0,0.6)",
-            stroke_width=5,
-            background_image=img_b64,
-            update_streamlit=True,
-            height=st.session_state.uploaded_img.height,
-            width=st.session_state.uploaded_img.width,
+            stroke_width=10,
+            background_image=base_img,
+            height=base_img.height,
+            width=base_img.width,
             drawing_mode="point",
             key="canvas_remove"
         )
 
         if st.button("Feedback speichern"):
-            # Extrahiere neue Punkte aus Canvas-JSON
-            if canvas_add.json_data is not None:
-                added = [(int(obj["left"]), int(obj["top"])) for obj in canvas_add.json_data["objects"]]
-                st.session_state.added_points.extend(added)
-
-            if canvas_remove.json_data is not None:
-                removed = [(int(obj["left"]), int(obj["top"])) for obj in canvas_remove.json_data["objects"]]
-                st.session_state.removed_points.extend(removed)
-
-            # Berechne neue Gesamtpunkte
-            final_points = set(st.session_state.detected_points)
-            final_points.update(st.session_state.added_points)
-            final_points.difference_update(st.session_state.removed_points)
-
-            # Markiertes Bild erstellen
-            img_final = np.array(st.session_state.uploaded_img.convert("RGB"))
-            for (x, y) in final_points:
-                cv2.circle(img_final, (x, y), 8, (0, 255, 0), 2)
-
-            st.image(img_final, caption=f"Korrigierte Zellkerne: {len(final_points)}")
+            add_points = canvas_add.json_data["objects"] if canvas_add.json_data else []
+            remove_points = canvas_remove.json_data["objects"] if canvas_remove.json_data else []
+            st.success(f"Hinzugefügt: {len(add_points)} | Entfernt: {len(remove_points)}")
+    else:
+        st.warning("Bitte zuerst im Tab 'Analyse' ein Bild hochladen und analysieren.")
 
