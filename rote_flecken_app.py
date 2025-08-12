@@ -74,21 +74,38 @@ if uploaded_file:
     rgb_color = tuple(int(color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
     bgr_color = rgb_color[::-1]
 
+    use_manual_contrast = st.sidebar.checkbox("🔧 Manuellen Kontrast verwenden", value=False)
+use_manual_threshold = st.sidebar.checkbox("🔧 Manuellen Threshold verwenden", value=False)
+
+clip_limit = st.sidebar.slider(
+    "CLAHE Clip Limit", 1.0, 10.0,
+    auto_params.get("clip_limit", 2.0) if auto_params else 2.0, 0.1
+)
+
+manual_thresh = st.sidebar.slider(
+    "Threshold-Wert", 0, 255,
+    auto_params.get("threshold", 128) if auto_params else 128
+)
+
     # -------------------- CLAHE automatisch --------------------
     contrast = gray.std()
-    if contrast < 40:
-        clip_limit = 4.0
-    elif contrast < 80:
-        clip_limit = 2.0
+    if use_manual_contrast:
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
     else:
-        clip_limit = 1.5
+        auto_clip = 4.0 if contrast < 40 else 2.0 if contrast < 80 else 1.5
+        clahe = cv2.createCLAHE(clipLimit=auto_clip, tileGridSize=(8, 8))
 
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
+
     # -------------------- Thresholding --------------------
-    otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    _, mask = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
+    if use_manual_threshold:
+        _, mask = cv2.threshold(gray, manual_thresh, 255, cv2.THRESH_BINARY)
+        otsu_thresh = manual_thresh  # für Speicherung
+    else:
+        otsu_thresh, _ = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        _, mask = cv2.threshold(gray, otsu_thresh, 255, cv2.THRESH_BINARY)
+
 
     if np.mean(gray[mask == 255]) > np.mean(gray[mask == 0]):
         mask = cv2.bitwise_not(mask)
@@ -119,15 +136,18 @@ if uploaded_file:
 
     # -------------------- Speichern der Parameter --------------------
     if st.button("💾 Aktuelle Parameter als 'Bestes Ergebnis' speichern"):
-        new_entry = {
+       new_entry = {
             "features": features,
             "params": {
                 "min_size": min_size,
                 "radius": radius,
                 "line_thickness": line_thickness,
-                "color": color
+                "color": color,
+                "clip_limit": clip_limit if use_manual_contrast else auto_clip,
+                "threshold": otsu_thresh
             }
         }
+ 
         db.append(new_entry)
         save_param_db(db)
         st.success("Parameter gespeichert – Programm wird daraus lernen!")
