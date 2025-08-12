@@ -1,44 +1,79 @@
 import streamlit as st
+from PIL import Image, ImageDraw, ImageEnhance
 import numpy as np
-import cv2
-from PIL import Image
 
 st.set_page_config(layout="wide")
-st.title("🎯 Farb-Flecken-Zähler")
+st.title("🧪 Rote Flecken App – Erweiterte Version")
 
-uploaded_file = st.file_uploader("📁 Bild hochladen", type=["jpg", "png", "tif", "tiff"])
+# 📁 Bild hochladen
+uploaded_file = st.file_uploader("📁 Bild hochladen", type=["jpg", "jpeg", "png", "tif", "tiff"])
 if uploaded_file:
-    image = np.array(Image.open(uploaded_file).convert("RGB"))
-    hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    image = Image.open(uploaded_file).convert("RGB")
 
-    # 🎨 Farbgrenzen definieren
-    def count_color(hsv_img, lower, upper):
-        mask = cv2.inRange(hsv_img, lower, upper)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        return len([c for c in contours if cv2.contourArea(c) > 50])
+    # 🌓 Kontrastregler
+    kontrast = st.slider("🌓 Kontrast", 0.5, 3.0, 1.0, 0.1)
+    image = ImageEnhance.Contrast(image).enhance(kontrast)
 
-    # 🔴 Rot
-    red1 = count_color(hsv, np.array([0, 70, 50]), np.array([10, 255, 255]))
-    red2 = count_color(hsv, np.array([160, 70, 50]), np.array([180, 255, 255]))
-    red_count = red1 + red2
+    # 📏 Markierungsdicke
+    radius = st.slider("📏 Markierungsradius", 5, 30, 10)
 
-    # 🟢 Grün
-    green_count = count_color(hsv, np.array([40, 70, 50]), np.array([80, 255, 255]))
+    # 🎚️ Schwellenwert für automatische Erkennung
+    threshold = st.slider("🎚️ Schwellenwert (Helligkeit)", 0, 255, 100)
 
-    # 🔵 Blau
-    blue_count = count_color(hsv, np.array([100, 70, 50]), np.array([140, 255, 255]))
+    # 🧠 Session-Initialisierung
+    if "punkte" not in st.session_state:
+        st.session_state.punkte = []
+    if "farben" not in st.session_state:
+        st.session_state.farben = []
 
-    # ⚫ Dunkel (niedrige Helligkeit)
-    dark_mask = cv2.inRange(hsv[:, :, 2], 0, 50)
-    contours, _ = cv2.findContours(dark_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    dark_count = len([c for c in contours if cv2.contourArea(c) > 50])
+    # ✏️ Manuelle Markierung
+    st.markdown("### ➕ Manuelle Fleckenmarkierung")
+    x = st.slider("X", 0, image.width, value=image.width // 2)
+    y = st.slider("Y", 0, image.height, value=image.height // 2)
+    farbe = st.radio("Farbe", ["Rot", "Grün", "Blau", "Dunkel"])
 
-    # 🖼️ Anzeige
-    st.image(image, caption="📷 Originalbild", use_column_width=True)
+    if st.button("📌 Punkt speichern"):
+        st.session_state.punkte.append((x, y))
+        st.session_state.farben.append(farbe)
+        st.success(f"Gespeichert: ({x}, {y}) – {farbe}")
 
-    # 📊 Live-Zähler
-    st.markdown("### 📊 Fleckenanzahl (live)")
-    st.metric("🔴 Rote Flecken", red_count)
-    st.metric("🟢 Grüne Flecken", green_count)
-    st.metric("🔵 Blaue Flecken", blue_count)
-    st.metric("⚫ Dunkle Flecken", dark_count)
+    # ❌ Punkt entfernen
+    st.markdown("### ❌ Punkt entfernen")
+    if st.session_state.punkte:
+        idx_to_remove = st.number_input("Index löschen", min_value=1, max_value=len(st.session_state.punkte), step=1)
+        if st.button("🗑️ Löschen"):
+            st.session_state.punkte.pop(idx_to_remove - 1)
+            st.session_state.farben.pop(idx_to_remove - 1)
+            st.experimental_rerun()
+
+    # 🧪 Automatische Fleckenerkennung
+    st.markdown("### 🧪 Automatische Fleckenerkennung")
+    gray = np.array(image.convert("L"))
+    mask = gray < threshold
+    coords = np.column_stack(np.where(mask))
+
+    # 🖼️ Bild zeichnen
+    image_draw = image.copy()
+    draw = ImageDraw.Draw(image_draw)
+    farbcode = {"Rot": "red", "Grün": "green", "Blau": "blue", "Dunkel": "black"}
+
+    # Manuelle Punkte
+    for (px, py), f in zip(st.session_state.punkte, st.session_state.farben):
+        draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=farbcode[f])
+
+    # Automatische Punkte (blau)
+    for y, x in coords[::100]:  # Nur jeden 100. Punkt
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline="blue")
+
+    st.image(image_draw, caption="🖼️ Bild mit Flecken", use_column_width=True)
+
+    # 📊 Zähler
+    st.markdown("### 📊 Fleckenanzahl")
+    for f in ["Rot", "Grün", "Blau", "Dunkel"]:
+        st.metric(f"{f}e Flecken", st.session_state.farben.count(f))
+    st.metric("🔵 Automatisch erkannte Flecken", len(coords[::100]))
+
+    # 📋 Punktliste
+    st.markdown("### 📋 Gespeicherte Punkte")
+    for idx, ((px, py), f) in enumerate(zip(st.session_state.punkte, st.session_state.farben), 1):
+        st.write(f"{idx}. X: {px}, Y: {py}, Farbe: {f}")
