@@ -120,14 +120,12 @@ if uploaded_file:
 
     show_original = st.sidebar.checkbox("Originalbild anzeigen", value=True)
 
-    col1, col2 = st.columns(2)
-
     if show_original:
+        col1, col2 = st.columns(2)
         col1.image(image, caption="Original", use_container_width=True)
+        col2.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
     else:
-        col1.empty()  # Platz freigeben
-
-    col2.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
+        st.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
 
 
     # -------------------- Speichern der Parameter --------------------
