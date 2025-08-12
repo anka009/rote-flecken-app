@@ -118,9 +118,17 @@ if uploaded_file:
     for (x, y) in centers:
         cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
+    show_original = st.sidebar.checkbox("Originalbild anzeigen", value=True)
+
     col1, col2 = st.columns(2)
-    col1.image(image, caption="Original", use_container_width=True)
+
+    if show_original:
+        col1.image(image, caption="Original", use_container_width=True)
+    else:
+        col1.empty()  # Platz freigeben
+
     col2.image(marked, caption=f"Gefundene Kerne: {len(centers)}", use_container_width=True)
+
 
     # -------------------- Speichern der Parameter --------------------
     if st.button("💾 Aktuelle Parameter als 'Bestes Ergebnis' speichern"):
