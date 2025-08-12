@@ -62,6 +62,13 @@ if uploaded_files:
             contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             min_area = 50
             filtered = [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
+            def is_near(point, contour, threshold=20):
+                px, py = point["left"], point["top"]
+                for pt in contour:
+                    x, y = pt[0]
+                    if np.hypot(px - x, py - y) < threshold:
+                        return True
+                return False
 
             # 🖍️ Manuelle Bearbeitung
             st.markdown("### ➕ Flecken hinzufügen")
