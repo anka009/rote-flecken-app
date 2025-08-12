@@ -1,5 +1,5 @@
 streamlit>=1.41.0
-git+https://github.com/bowespublishing/streamlit-drawable-canvas.git
+streamlit-drawable-canvas
 opencv-python-headless
 numpy
 Pillow
