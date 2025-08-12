@@ -1,79 +1,45 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageEnhance
+from PIL import Image, ImageDraw
 import numpy as np
+from sklearn.cluster import DBSCAN
 
-st.set_page_config(layout="wide")
-st.title("🧪 Rote Flecken App – Erweiterte Version")
+# Dummy-Bild laden oder generieren
+image = Image.new("RGB", (600, 400), "white")
+draw = ImageDraw.Draw(image)
 
-# 📁 Bild hochladen
-uploaded_file = st.file_uploader("📁 Bild hochladen", type=["jpg", "jpeg", "png", "tif", "tiff"])
-if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
+# Beispielpunkte (automatisch erkannte + manuelle)
+coords = np.random.randint(50, 550, size=(100, 2))
+if "punkte" not in st.session_state:
+    st.session_state.punkte = []
 
-    # 🌓 Kontrastregler
-    kontrast = st.slider("🌓 Kontrast", 0.5, 3.0, 1.0, 0.1)
-    image = ImageEnhance.Contrast(image).enhance(kontrast)
+# Layout: Bild links, Regler rechts
+col_img, col_ctrl = st.columns([3, 1])
+with col_ctrl:
+    kontrast = st.slider("Kontrast", 0.5, 3.0, 1.0, 0.1)
+    radius = st.slider("Markierungsradius", 5, 30, 10)
+    schwelle = st.slider("Schwellenwert", 0, 255, 100)
+    gruppen_radius = st.slider("Gruppierungsradius", 10, 100, 30)
 
-    # 📏 Markierungsdicke
-    radius = st.slider("📏 Markierungsradius", 5, 30, 10)
+# Punkte kombinieren
+all_coords = np.array(st.session_state.punkte + list(coords))
 
-    # 🎚️ Schwellenwert für automatische Erkennung
-    threshold = st.slider("🎚️ Schwellenwert (Helligkeit)", 0, 255, 100)
+# Gruppierung mit DBSCAN
+clustering = DBSCAN(eps=gruppen_radius, min_samples=1).fit(all_coords)
+labels = clustering.labels_
+unique_groups = len(set(labels))
 
-    # 🧠 Session-Initialisierung
-    if "punkte" not in st.session_state:
-        st.session_state.punkte = []
-    if "farben" not in st.session_state:
-        st.session_state.farben = []
+# Farben für Gruppen
+colors = ["red", "green", "blue", "orange", "purple", "cyan", "magenta", "yellow"]
 
-    # ✏️ Manuelle Markierung
-    st.markdown("### ➕ Manuelle Fleckenmarkierung")
-    x = st.slider("X", 0, image.width, value=image.width // 2)
-    y = st.slider("Y", 0, image.height, value=image.height // 2)
-    farbe = st.radio("Farbe", ["Rot", "Grün", "Blau", "Dunkel"])
+# Zeichnen
+for group_id in set(labels):
+    group_points = all_coords[labels == group_id]
+    for x, y in group_points:
+        draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=colors[group_id % len(colors)])
 
-    if st.button("📌 Punkt speichern"):
-        st.session_state.punkte.append((x, y))
-        st.session_state.farben.append(farbe)
-        st.success(f"Gespeichert: ({x}, {y}) – {farbe}")
+# Anzeige
+with col_img:
+    st.image(image, caption="🖼️ Bild mit Fleckengruppen", use_column_width=True)
 
-    # ❌ Punkt entfernen
-    st.markdown("### ❌ Punkt entfernen")
-    if st.session_state.punkte:
-        idx_to_remove = st.number_input("Index löschen", min_value=1, max_value=len(st.session_state.punkte), step=1)
-        if st.button("🗑️ Löschen"):
-            st.session_state.punkte.pop(idx_to_remove - 1)
-            st.session_state.farben.pop(idx_to_remove - 1)
-            st.experimental_rerun()
-
-    # 🧪 Automatische Fleckenerkennung
-    st.markdown("### 🧪 Automatische Fleckenerkennung")
-    gray = np.array(image.convert("L"))
-    mask = gray < threshold
-    coords = np.column_stack(np.where(mask))
-
-    # 🖼️ Bild zeichnen
-    image_draw = image.copy()
-    draw = ImageDraw.Draw(image_draw)
-    farbcode = {"Rot": "red", "Grün": "green", "Blau": "blue", "Dunkel": "black"}
-
-    # Manuelle Punkte
-    for (px, py), f in zip(st.session_state.punkte, st.session_state.farben):
-        draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=farbcode[f])
-
-    # Automatische Punkte (blau)
-    for y, x in coords[::100]:  # Nur jeden 100. Punkt
-        draw.ellipse((x - radius, y - radius, x + radius, y + radius), outline="blue")
-
-    st.image(image_draw, caption="🖼️ Bild mit Flecken", use_column_width=True)
-
-    # 📊 Zähler
-    st.markdown("### 📊 Fleckenanzahl")
-    for f in ["Rot", "Grün", "Blau", "Dunkel"]:
-        st.metric(f"{f}e Flecken", st.session_state.farben.count(f))
-    st.metric("🔵 Automatisch erkannte Flecken", len(coords[::100]))
-
-    # 📋 Punktliste
-    st.markdown("### 📋 Gespeicherte Punkte")
-    for idx, ((px, py), f) in enumerate(zip(st.session_state.punkte, st.session_state.farben), 1):
-        st.write(f"{idx}. X: {px}, Y: {py}, Farbe: {f}")
+with col_ctrl:
+    st.metric("🧮 Gruppenanzahl", unique_groups)
