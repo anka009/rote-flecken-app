@@ -62,6 +62,8 @@ if uploaded_files:
             contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             min_area = 50
             filtered = [cnt for cnt in contours if cv2.contourArea(cnt) > min_area]
+
+            # 🧠 Hilfsfunktion: Nähe prüfen
             def is_near(point, contour, threshold=20):
                 px, py = point["left"], point["top"]
                 for pt in contour:
@@ -95,13 +97,38 @@ if uploaded_files:
                 key=f"del_{i}"
             )
 
-            # 📌 Punkte auslesen
             add_points = canvas_add.json_data.get("objects", []) if canvas_add.json_data else []
             del_points = canvas_del.json_data.get("objects", []) if canvas_del.json_data else []
 
-            # 🧠 Konturen löschen, wenn nahe an Löschpunkten
-            def is_near(point, contour, threshold=20):
-                px, py = point["left"], point["top"]
-                for pt in contour:
-                    x, y = pt[0]
-                    if np.hypot(px -
+            # 🧹 Konturen bereinigen
+            filtered_final = []
+            for cnt in filtered:
+                if not any(is_near(p, cnt) for p in del_points):
+                    filtered_final.append(cnt)
+
+            # ➕ Neue Punkte als Kreise
+            for p in add_points:
+                cx, cy = int(p["left"]), int(p["top"])
+                radius = 10
+                circle = cv2.ellipse2Poly((cx, cy), (radius, radius), 0, 0, 360, 10)
+                filtered_final.append(circle.reshape((-1, 1, 2)))
+
+            fleckenzahl = len(filtered_final)
+            fläche_pixel = sum(cv2.contourArea(cnt) for cnt in filtered_final)
+            fläche_mm2 = fläche_pixel / (pixels_per_mm ** 2)
+
+            st.success(f"🔴 Flecken nach Bearbeitung: {fleckenzahl}")
+            st.info(f"📐 Fläche: {fläche_pixel:.2f} Pixel² ({fläche_mm2:.2f} mm²)")
+
+            total_flecken += fleckenzahl
+            total_pixel_area += fläche_pixel
+
+            output = image_np.copy()
+            cv2.drawContours(output, filtered_final, -1, (0, 255, 0), 2)
+            st.image(output, caption="✅ Finales Ergebnis", channels="RGB")
+
+    total_mm2 = total_pixel_area / (pixels_per_mm ** 2)
+    st.markdown("---")
+    st.subheader("📊 Gesamtanalyse")
+    st.success(f"🔴 Gesamtanzahl Flecken: {total_flecken}")
+    st.info(f"📐 Gesamtfläche: {total_pixel_area:.2f} Pixel² ({total_mm2:.2f} mm²)")
