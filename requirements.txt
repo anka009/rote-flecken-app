@@ -1,5 +1,5 @@
-streamlit
-opencv-python-headless
+streamlit>=1.24.0
+streamlit-drawable-canvas==0.9.3
 numpy
-pillow
-matplotlib
+opencv-python
+Pillow
