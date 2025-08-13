@@ -15,15 +15,15 @@ if uploaded_file:
     # Bild stabil laden & in RGB konvertieren
     img = Image.open(uploaded_file).convert("RGB")
     st.image(img, caption="Originalbild", use_column_width=True)
-    
+
     # ------------------------
-    # Canvas-Einstellungen
+    # Canvas-Einstellungen (ohne Hintergrund)
     # ------------------------
     canvas_result = st_canvas(
         fill_color="rgba(255, 0, 0, 0.3)",  # halbtransparent rot
         stroke_color="red",
         stroke_width=2,
-        background_image=img,
+        background_color="white",  # Canvas selbst ist sichtbar, Hintergrundbild entfällt
         update_streamlit=True,
         height=img.height,
         width=img.width,
