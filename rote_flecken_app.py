@@ -5,7 +5,7 @@ import numpy as np
 import cv2
 
 st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
-st.title("🖌 Mensch & Maschine Team Workflow (Kreise + Polygon)")
+st.title("🖌 Mensch & Maschine Team Workflow (Direkt auf Bild)")
 
 # ------------------------
 # Bild-Upload
@@ -14,56 +14,86 @@ uploaded_file = st.sidebar.file_uploader("Bild auswählen", type=["png","jpg","j
 if uploaded_file:
     img = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(img)
-    st.image(img, caption="Originalbild", use_column_width=True)
+    st.sidebar.subheader("Canvas-Transparenz")
+    alpha = st.sidebar.slider("Transparenz Canvas", 0.0, 1.0, 0.2)
 
     # ------------------------
-    # Radius-Einstellungen für Kreise
+    # Kreisparameter
     # ------------------------
     st.sidebar.subheader("Kreis-Parameter")
-    radius = st.sidebar.slider("Radius in Pixel", min_value=5, max_value=200, value=20)
-    radius_input = st.sidebar.number_input("Radius exakt eingeben", min_value=1, max_value=500, value=radius)
-    radius = radius_input  # überschreibt Slider, falls Zahl eingegeben
+    radius_slider = st.sidebar.slider("Radius in Pixel", min_value=5, max_value=200, value=20)
+    radius_input = st.sidebar.number_input("Radius exakt eingeben", min_value=1, max_value=500, value=radius_slider)
+    radius = radius_input
 
     # ------------------------
-    # Canvas-Einstellungen
+    # Zeichenmodus
+    # ------------------------
+    mode = st.sidebar.radio("Zeichenmodus", ("Punkt/Kreis", "Polygon"))
+    drawing_mode = "point" if mode=="Punkt/Kreis" else "polygon"
+
+    # ------------------------
+    # Canvas direkt über das Bild
     # ------------------------
     canvas_result = st_canvas(
-        fill_color="rgba(255,0,0,0.3)",
-        stroke_color="red",
+        fill_color=f"rgba(255,0,0,{alpha})",
+        stroke_color=f"rgba(255,0,0,{alpha})",
         stroke_width=2,
-        background_color="white",  # Canvas selbst sichtbar
+        background_color=None,  # kein separates Feld
         update_streamlit=True,
         height=img_np.shape[0],
         width=img_np.shape[1],
-        drawing_mode="point",  # Klickpunkte für Kreismittel
+        drawing_mode=drawing_mode,
         key="canvas"
     )
 
     # ------------------------
-    # Session State für Kreise
+    # Session State
     # ------------------------
+    if "polygons" not in st.session_state:
+        st.session_state.polygons = []
     if "circles" not in st.session_state:
         st.session_state.circles = []
 
-    # Punkte aus Canvas speichern
+    # ------------------------
+    # Polygone + Punkte speichern
+    # ------------------------
     if canvas_result.json_data is not None:
         objects = canvas_result.json_data["objects"]
+        new_polygons = []
+        new_circles = []
         for obj in objects:
-            if obj["type"] == "circle" or obj["type"] == "point":
+            if obj["type"] == "polygon":
+                points = [(p["x"], p["y"]) for p in obj["path"]]
+                new_polygons.append(points)
+            elif obj["type"] == "point":
                 x = obj["left"]
                 y = obj["top"]
-                # Prüfen, ob Punkt schon existiert
-                if (x,y) not in st.session_state.circles:
-                    st.session_state.circles.append((x,y))
+                new_circles.append((x,y))
+        if new_polygons != st.session_state.polygons:
+            st.session_state.polygons = new_polygons
+        if new_circles:
+            st.session_state.circles.extend([c for c in new_circles if c not in st.session_state.circles])
 
-    st.write(f"Anzahl markierter Strukturen (Kreise): {len(st.session_state.circles)}")
+    st.write(f"Anzahl Polygone: {len(st.session_state.polygons)}")
+    st.write(f"Anzahl Kreise: {len(st.session_state.circles)}")
 
     # ------------------------
     # Maske erzeugen
     # ------------------------
-    if st.button("Maske aus Kreisen erzeugen"):
-        mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=np.uint8)
+    if st.button("Maske erzeugen"):
+        mask = img_np.copy()  # Bild kopieren
+        overlay = np.zeros_like(mask, dtype=np.uint8)
+
+        # Polygone
+        for poly in st.session_state.polygons:
+            pts = np.array(poly, np.int32).reshape((-1,1,2))
+            cv2.fillPoly(overlay, [pts], (255,255,255))
+
+        # Kreise
         for x, y in st.session_state.circles:
-            cv2.circle(mask, (int(x), int(y)), int(radius), 255, -1)  # gefüllter Kreis
-        st.image(mask, caption="Maske der Kreise", use_column_width=True)
-        st.success("Maske erzeugt, Kreise gezählt!")
+            cv2.circle(overlay, (int(x), int(y)), int(radius), (255,255,255), -1)
+
+        # Transparenz kombinieren
+        combined = cv2.addWeighted(mask, 1.0, overlay, alpha, 0)
+        st.image(combined, caption="Strukturen direkt auf Bild", use_column_width=True)
+        st.success("Maske erzeugt, alle Strukturen sichtbar!")
