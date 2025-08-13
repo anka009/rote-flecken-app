@@ -5,58 +5,65 @@ import numpy as np
 import cv2
 
 st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
-st.title("🖌 Mensch & Maschine Team Workflow")
+st.title("🖌 Mensch & Maschine Team Workflow (Kreise + Polygon)")
 
 # ------------------------
 # Bild-Upload
 # ------------------------
-uploaded_file = st.sidebar.file_uploader("📁 Bild auswählen", type=["png", "jpg", "jpeg"])
+uploaded_file = st.sidebar.file_uploader("Bild auswählen", type=["png","jpg","jpeg"])
 if uploaded_file:
-    # Bild stabil laden & in RGB konvertieren
     img = Image.open(uploaded_file).convert("RGB")
+    img_np = np.array(img)
     st.image(img, caption="Originalbild", use_column_width=True)
 
     # ------------------------
-    # Canvas-Einstellungen (ohne Hintergrund)
+    # Radius-Einstellungen für Kreise
+    # ------------------------
+    st.sidebar.subheader("Kreis-Parameter")
+    radius = st.sidebar.slider("Radius in Pixel", min_value=5, max_value=200, value=20)
+    radius_input = st.sidebar.number_input("Radius exakt eingeben", min_value=1, max_value=500, value=radius)
+    radius = radius_input  # überschreibt Slider, falls Zahl eingegeben
+
+    # ------------------------
+    # Canvas-Einstellungen
     # ------------------------
     canvas_result = st_canvas(
-        fill_color="rgba(255, 0, 0, 0.3)",  # halbtransparent rot
+        fill_color="rgba(255,0,0,0.3)",
         stroke_color="red",
         stroke_width=2,
-        background_color="white",  # Canvas selbst ist sichtbar, Hintergrundbild entfällt
+        background_color="white",  # Canvas selbst sichtbar
         update_streamlit=True,
-        height=img.height,
-        width=img.width,
-        drawing_mode="polygon",
-        key="canvas",
+        height=img_np.shape[0],
+        width=img_np.shape[1],
+        drawing_mode="point",  # Klickpunkte für Kreismittel
+        key="canvas"
     )
 
     # ------------------------
-    # Polygone speichern
+    # Session State für Kreise
     # ------------------------
-    if "polygons" not in st.session_state:
-        st.session_state.polygons = []
+    if "circles" not in st.session_state:
+        st.session_state.circles = []
 
+    # Punkte aus Canvas speichern
     if canvas_result.json_data is not None:
         objects = canvas_result.json_data["objects"]
-        new_polygons = []
         for obj in objects:
-            if obj["type"] == "polygon":
-                points = [(p["x"], p["y"]) for p in obj["path"]]
-                new_polygons.append(points)
-        
-        if new_polygons != st.session_state.polygons:
-            st.session_state.polygons = new_polygons
+            if obj["type"] == "circle" or obj["type"] == "point":
+                x = obj["left"]
+                y = obj["top"]
+                # Prüfen, ob Punkt schon existiert
+                if (x,y) not in st.session_state.circles:
+                    st.session_state.circles.append((x,y))
 
-    st.write(f"Anzahl markierter Strukturen: {len(st.session_state.polygons)}")
+    st.write(f"Anzahl markierter Strukturen (Kreise): {len(st.session_state.circles)}")
 
     # ------------------------
-    # Maske aus Polygonen erzeugen (OpenCV)
+    # Maske erzeugen
     # ------------------------
-    if st.button("Maschine analysiert markierte Strukturen"):
-        mask = np.zeros((img.height, img.width), dtype=np.uint8)
-        for poly in st.session_state.polygons:
-            pts = np.array(poly, np.int32).reshape((-1, 1, 2))
-            cv2.fillPoly(mask, [pts], 255)
-        st.image(mask, caption="Maske der markierten Strukturen", use_column_width=True)
-        st.success("Maschine kann nun ähnliche Strukturen im Bild suchen!")
+    if st.button("Maske aus Kreisen erzeugen"):
+        mask = np.zeros((img_np.shape[0], img_np.shape[1]), dtype=np.uint8)
+        for x, y in st.session_state.circles:
+            cv2.circle(mask, (int(x), int(y)), int(radius), 255, -1)  # gefüllter Kreis
+        st.image(mask, caption="Maske der Kreise", use_column_width=True)
+        st.success("Maske erzeugt, Kreise gezählt!")
