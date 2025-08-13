@@ -5,3 +5,4 @@ numpy
 pillow
 streamlit-image-coordinates
 scikit-image
+plotly
