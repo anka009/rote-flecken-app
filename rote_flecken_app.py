@@ -1,10 +1,10 @@
 import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
 from PIL import Image
 import numpy as np
-import cv2
 
-st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
-st.title("🖌 Marker direkt auf Bild (OpenCV)")
+st.title("🖌 Interaktive Marker direkt auf Bild – nur Umrandung")
 
 # ------------------------
 # Bild-Upload
@@ -16,71 +16,50 @@ if uploaded_file:
     height, width = img_np.shape[:2]
 
     # ------------------------
-    # Kreisparameter
+    # Kreis-Parameter
     # ------------------------
-    st.sidebar.subheader("Kreis-Parameter")
-    radius = st.sidebar.slider("Radius in Pixel", 5, 200, 20)
-
-    # ------------------------
-    # Zeichenmodus
-    # ------------------------
-    mode = st.sidebar.radio("Zeichenmodus", ("Kreis setzen", "Polygon zeichnen"))
+    radius = st.sidebar.slider("Kreis-Radius in Pixel", 5, 100, 20)
+    circle_color = st.sidebar.color_picker("Farbe Kreis-Umrandung", "#00FF00")
+    poly_color = st.sidebar.color_picker("Farbe Polygon", "#FF0000")
 
     # ------------------------
     # Session State
     # ------------------------
-    if "points" not in st.session_state:
-        st.session_state.points = []  # für Kreise
-    if "current_polygon" not in st.session_state:
-        st.session_state.current_polygon = []  # Polygon in Bearbeitung
+    if "circles" not in st.session_state:
+        st.session_state.circles = []  # (x, y)
     if "polygons" not in st.session_state:
-        st.session_state.polygons = []  # fertige Polygone
+        st.session_state.polygons = []  # Liste von Polygonen
+    if "current_poly" not in st.session_state:
+        st.session_state.current_poly = []
 
     # ------------------------
-    # Kreise setzen
+    # Plotly Figure erstellen
     # ------------------------
-    st.subheader("Kreise setzen")
-    col1, col2 = st.columns(2)
-    with col1:
-        x = st.number_input("X-Koordinate", min_value=0, max_value=width-1, value=width//2)
-        y = st.number_input("Y-Koordinate", min_value=0, max_value=height-1, value=height//2)
-        if st.button("Kreis hinzufügen"):
-            st.session_state.points.append((x,y))
+    fig = px.imshow(img_np)
+    fig.update_layout(
+        dragmode="drawopenpath",  # für Mausinteraktion
+        newshape=dict(line_color=poly_color, fillcolor='rgba(0,0,0,0)'),
+        margin=dict(l=0,r=0,t=0,b=0),
+        width=width,
+        height=height
+    )
 
-    # ------------------------
-    # Polygon zeichnen
-    # ------------------------
-    with col2:
-        st.write("Polygon-Modus")
-        px = st.number_input("Polygon X", min_value=0, max_value=width-1, value=width//2, key="px")
-        py = st.number_input("Polygon Y", min_value=0, max_value=height-1, value=height//2, key="py")
-        if st.button("Punkt zum Polygon"):
-            st.session_state.current_polygon.append((px,py))
-        if st.button("Polygon fertig"):
-            if st.session_state.current_polygon:
-                st.session_state.polygons.append(st.session_state.current_polygon.copy())
-                st.session_state.current_polygon = []
+    # Kreise zeichnen
+    for x, y in st.session_state.circles:
+        fig.add_shape(
+            type="circle",
+            x0=x-radius, y0=y-radius,
+            x1=x+radius, y1=y+radius,
+            line=dict(color=circle_color, width=2),
+        )
 
-    # ------------------------
-    # Overlay auf Bild
-    # ------------------------
-    overlay = img_np.copy()
-
-    # Kreise
-    for x, y in st.session_state.points:
-        cv2.circle(overlay, (int(x), int(y)), radius, (0,255,0), -1)
-
-    # Polygone
+    # Polygone zeichnen
     for poly in st.session_state.polygons:
-        pts = np.array(poly, np.int32).reshape((-1,1,2))
-        cv2.polylines(overlay, [pts], isClosed=True, color=(255,0,0), thickness=2)
-        cv2.fillPoly(overlay, [pts], (255,0,0,50))  # leicht transparent
+        x_coords, y_coords = zip(*poly)
+        fig.add_trace(go.Scatter(x=x_coords + (x_coords[0],), y=y_coords + (y_coords[0],),
+                                 mode="lines", line=dict(color=poly_color, width=2), fill='none'))
 
-    # aktuelles Polygon (in Bearbeitung)
-    if st.session_state.current_polygon:
-        pts = np.array(st.session_state.current_polygon, np.int32).reshape((-1,1,2))
-        cv2.polylines(overlay, [pts], isClosed=False, color=(0,0,255), thickness=2)
+    st.plotly_chart(fig)
 
-    st.image(overlay, caption="Marker direkt auf Bild", use_column_width=True)
-    st.write(f"Anzahl Kreise: {len(st.session_state.points)}")
+    st.write(f"Anzahl Kreise: {len(st.session_state.circles)}")
     st.write(f"Anzahl Polygone: {len(st.session_state.polygons)}")
