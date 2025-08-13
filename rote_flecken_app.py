@@ -1,74 +1,79 @@
+# app.py — Interaktiver Objekte-Zähler mit Klick-Korrektur
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
 import io
 import csv
+import cv2
+
+# Klick-Erfassung
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+    HAVE_CLICK = True
+except Exception:
+    HAVE_CLICK = False
 
 st.set_page_config(page_title="🖌️ Interaktiver Objekte-Zähler", layout="wide")
-st.title("🖌️ Interaktiver Objekte-Zähler (Stufe 3.0)")
+st.title("🖌️ Interaktiver Objekte-Zähler — Stufe 3.1")
 
-# -------------------- Upload --------------------
-uploaded_file = st.file_uploader(
-    "Bild hochladen (PNG, JPG, JPEG, TIFF/TIF)",
-    type=["png", "jpg", "jpeg", "tif", "tiff"]
-)
+# Sidebar Einstellungen
+st.sidebar.header("Einstellungen für Markierung")
+radius = st.sidebar.slider("Radius der Markierungen (px)", 1, 50, 10)
+color_picker = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
+line_thickness = st.sidebar.slider("Linienstärke", 1, 10, 2)
 
+# Upload
+uploaded_file = st.file_uploader("Bild hochladen (PNG, JPG, JPEG, TIFF/TIF)", type=["png","jpg","jpeg","tif","tiff"])
 if uploaded_file:
-    # TIFF / TIF in RGB konvertieren
-    pil_image = Image.open(uploaded_file)
-    if pil_image.mode != "RGB":
-        pil_image = pil_image.convert("RGB")
-    img_width, img_height = pil_image.size
+    # Bild laden und in RGB konvertieren
+    img = Image.open(uploaded_file).convert("RGB")
+    
+    # Optional: skalieren, falls sehr groß
+    max_size = (1024, 1024)
+    img.thumbnail(max_size, Image.Resampling.LANCZOS)
 
-    # -------------------- Sidebar: Einstellungen --------------------
-    st.sidebar.header("Einstellungen für Markierung")
-    mark_radius = st.sidebar.slider("Radius der Markierungen (px)", 1, 50, 10)
-    mark_color = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
-    line_width = st.sidebar.slider("Linienstärke", 1, 10, 2)
+    # Session-State für Punkte
+    if "points" not in st.session_state:
+        st.session_state["points"] = []
 
-    # Convert color hex to BGR tuple for OpenCV compatibility
-    color_rgb = tuple(int(mark_color.lstrip("#")[i:i+2], 16) for i in (0, 2, 4))
+    st.write("**Markiere die Objekte:** Klicke, um Punkte hinzuzufügen, klicke auf bestehende Punkte, um sie zu löschen.")
 
-    # -------------------- Canvas --------------------
-    st.markdown("**Markiere die Objekte direkt im Bild**")
-    canvas_result = st_canvas(
-        fill_color="",  # Keine Füllung
-        stroke_width=line_width,
-        stroke_color=mark_color,
-        background_image=pil_image,
-        update_streamlit=True,
-        height=img_height,
-        width=img_width,
-        drawing_mode="circle",
-        key="canvas",
-    )
+    if HAVE_CLICK:
+        coords = streamlit_image_coordinates(img, key="coords")
+        if coords:
+            x, y = coords["x"], coords["y"]
+            # Prüfen, ob Klick auf existierenden Punkt -> löschen
+            removed = False
+            for i, (px, py) in enumerate(st.session_state["points"]):
+                if (px - x)**2 + (py - y)**2 <= radius**2:
+                    st.session_state["points"].pop(i)
+                    removed = True
+                    break
+            if not removed:
+                st.session_state["points"].append((x, y))
 
-    # -------------------- Punkte erfassen --------------------
-    if canvas_result.json_data is not None:
-        objects = canvas_result.json_data["objects"]
-        points = []
-        for obj in objects:
-            # x,y sind der Mittelpunkt des Kreises
-            left = obj["left"]
-            top = obj["top"]
-            radius = obj["radius"] if "radius" in obj else mark_radius
-            x = int(left + radius)
-            y = int(top + radius)
-            points.append((x, y, radius))
+    # Bild mit Markierungen erstellen
+    img_array = np.array(img)
+    marked = img_array.copy()
+    rgb_color = tuple(int(color_picker.lstrip("#")[i:i+2], 16) for i in (0,2,4))
+    bgr_color = rgb_color[::-1]
+    for (x, y) in st.session_state["points"]:
+        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
-        st.write(f"Gefundene Objekte: **{len(points)}**")
+    # Zwei Spalten: Original + Markiert
+    col1, col2 = st.columns(2)
+    col1.image(img, caption="Original", use_column_width=True)
+    col2.image(marked, caption=f"Markierte Objekte: {len(st.session_state['points'])}", use_column_width=True)
 
-        # -------------------- CSV Export --------------------
-        if points:
-            buf = io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(["x", "y", "radius"])
-            for p in points:
-                writer.writerow(p)
-            st.download_button(
-                "📥 Markierte Punkte als CSV exportieren",
-                data=buf.getvalue().encode("utf-8"),
-                file_name="marked_points.csv",
-                mime="text/csv",
-            )
+    # Punkte zurücksetzen
+    if st.button("🔄 Alle Punkte zurücksetzen"):
+        st.session_state["points"] = []
+
+    # CSV-Export
+    if st.session_state["points"]:
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["x","y"])
+        for p in st.session_state["points"]:
+            writer.writerow(p)
+        st.download_button("📥 Punkte als CSV exportieren", data=buf.getvalue().encode("utf-8"), file_name="punkte.csv", mime="text/csv")
