@@ -1,166 +1,138 @@
-# fleck_lernen_app_form.py
+# lernender_flecken_zaehler.py
 import streamlit as st
 from PIL import Image
 import numpy as np
 import cv2
+import io
 import json
-from pathlib import Path
+import os
+import time
+import csv
 
-# ================================
-# Lokale DB-Datei
-# ================================
-DB_FILE = Path("fleck_db.json")
-if DB_FILE.exists():
-    with open(DB_FILE, "r") as f:
-        fleck_db = json.load(f)
-else:
-    fleck_db = []
+# ----------------- Dateien -----------------
+DB_FILE = "flecken_db.json"
 
-# ================================
-# Streamlit Setup
-# ================================
-st.set_page_config(page_title="🎯 Fleck-Lernen mit Formanalyse", layout="wide")
-st.title("🎯 Interaktive Fleck-Lern- & Analyse-App mit Formparametern")
+# ----------------- Hilfsfunktionen -----------------
+def load_db():
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
 
-# Sidebar Parameter
-radius_toleranz = st.sidebar.slider("Toleranz Durchmesser (%)", 0, 50, 20)
-farbe_toleranz = st.sidebar.slider("Toleranz Farbwert HSV (%)", 0, 50, 20)
-form_toleranz = st.sidebar.slider("Toleranz Form (%)", 0, 50, 15)
-min_radius_auto = st.sidebar.slider("Minimaler Radius für Auto-Erkennung (px)", 1, 100, 5)
+def save_db(db):
+    with open(DB_FILE, "w") as f:
+        json.dump(db, f, indent=2)
+
+def hsv_mask(img_rgb, lower_hsv, upper_hsv):
+    hsv = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2HSV)
+    mask = cv2.inRange(hsv, np.array(lower_hsv), np.array(upper_hsv))
+    return mask
+
+def detect_blobs(mask, min_area=20):
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    results = []
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area >= min_area:
+            (x,y), r = cv2.minEnclosingCircle(c)
+            results.append({"x": int(x), "y": int(y), "radius": int(r), "area": float(area)})
+    return results
+
+def draw_points(img_rgb, points, color=(255,0,0), thickness=2):
+    out = img_rgb.copy()
+    for p in points:
+        cv2.circle(out, (p["x"],p["y"]), p["radius"], color, thickness)
+    return out
+
+# ----------------- Streamlit -----------------
+st.set_page_config(page_title="🧠 Lernender Flecken-Zähler", layout="wide")
+st.title("🧠 Lernender Flecken-Zähler")
 
 # Upload
-uploaded_file = st.file_uploader("Bild hochladen", type=["png","jpg","jpeg","tif","tiff"])
-if uploaded_file:
-    img = Image.open(uploaded_file).convert("RGB")
-    img_np = np.array(img)
-    img_display = img_np.copy()
+uploaded_file = st.file_uploader("Bild hochladen (PNG, JPG, JPEG, TIFF/TIF)", type=["png","jpg","jpeg","tif","tiff"])
+if not uploaded_file:
+    st.info("Bitte Bild hochladen")
+    st.stop()
 
-    try:
-        from streamlit_image_coordinates import streamlit_image_coordinates
-        coords = streamlit_image_coordinates(img, key="click")
-    except:
-        st.error("⚠ Bitte installiere 'streamlit-image-coordinates' per `pip install streamlit-image-coordinates`")
-        coords = None
+img = Image.open(uploaded_file).convert("RGB")
+img_array = np.array(img)
 
-    # ================================
-    # Fleckparameter-Funktion
-    # ================================
-    def finde_fleck_parameter(x, y, img_array):
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# Session state für Punkte
+if "points" not in st.session_state:
+    st.session_state["points"] = []
 
-        for cnt in contours:
-            if cv2.pointPolygonTest(cnt, (x, y), False) >= 0:
-                area = cv2.contourArea(cnt)
-                if area == 0:
-                    continue
-                perimeter = cv2.arcLength(cnt, True)
-                diameter = np.sqrt(4 * area / np.pi)
+# Sidebar
+st.sidebar.header("Markierungs-Einstellungen")
+radius = st.sidebar.slider("Radius der Markierungen (px)", 1, 50, 10)
+color_picker = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
+thickness = st.sidebar.slider("Linienstärke", 1, 10, 2)
+min_area = st.sidebar.slider("Min Area für automatische Erkennung", 5, 100, 20)
 
-                # Form-Parameter
-                roundness = (4 * np.pi * area) / (perimeter ** 2 + 1e-6)
+# Anzeige original + interaktiv
+st.write("**Korrektur: Klick auf bestehenden Punkt zum Löschen, auf leeren Bereich zum Hinzufügen**")
 
-                # Ellipse für Exzentrizität
-                if len(cnt) >= 5:
-                    ellipse = cv2.fitEllipse(cnt)
-                    a = max(ellipse[1]) / 2  # große Halbachse
-                    b = min(ellipse[1]) / 2  # kleine Halbachse
-                    exzentrizitaet = np.sqrt(1 - (b ** 2 / a ** 2))
-                else:
-                    exzentrizitaet = 0
-
-                # Mittlere HSV-Farbe
-                mask = np.zeros(gray.shape, np.uint8)
-                cv2.drawContours(mask, [cnt], -1, 255, -1)
-                mean_color = cv2.mean(cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV), mask=mask)
-                h, s, v, _ = mean_color
-
-                return {
-                    "durchmesser": diameter,
-                    "farbe_h": h,
-                    "farbe_s": s,
-                    "farbe_v": v,
-                    "flaeche": area,
-                    "rundheit": roundness,
-                    "exzentrizitaet": exzentrizitaet
-                }
-        return None
-
-    # Klick verarbeitet → Parameter speichern
+# Klick-Erfassung
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+    coords = streamlit_image_coordinates(img, key="coords")
     if coords:
-        params = finde_fleck_parameter(coords["x"], coords["y"], img_np)
-        if params:
-            fleck_db.append(params)
-            with open(DB_FILE, "w") as f:
-                json.dump(fleck_db, f, indent=2)
-            st.success(f"✅ Neuer Fleck gelernt: {params}")
-        else:
-            st.warning("⚠ Kein Fleck an dieser Stelle gefunden.")
+        x, y = coords["x"], coords["y"]
+        removed = False
+        for i, p in enumerate(st.session_state["points"]):
+            if (p["x"] - x)**2 + (p["y"] - y)**2 <= radius**2:
+                st.session_state["points"].pop(i)
+                removed = True
+                break
+        if not removed:
+            st.session_state["points"].append({"x": x, "y": y, "radius": radius})
+except ImportError:
+    st.info("streamlit_image_coordinates nicht installiert, nur manuelle Eingabe möglich.")
 
-    # ================================
-    # Vergleich mit gelernten Daten
-    # ================================
-    def passt_zu_gelernten(param):
-        for g in fleck_db:
-            if abs(param["durchmesser"] - g["durchmesser"]) <= (g["durchmesser"] * radius_toleranz / 100):
-                if abs(param["farbe_h"] - g["farbe_h"]) <= (g["farbe_h"] * farbe_toleranz / 100 + 1):
-                    if abs(param["rundheit"] - g["rundheit"]) <= (g["rundheit"] * form_toleranz / 100 + 0.01):
-                        return True
-        return False
+# Automatische Erkennung basierend auf DB
+db = load_db()
+auto_points = []
+for entry in db:
+    hsv_lower = entry["lower_hsv"]
+    hsv_upper = entry["upper_hsv"]
+    mask = hsv_mask(img_array, hsv_lower, hsv_upper)
+    auto_points.extend(detect_blobs(mask, min_area))
 
-    # ================================
-    # Auto-Erkennung
-    # ================================
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# Zusammenführen
+all_points = st.session_state["points"] + auto_points
 
-    count_auto = 0
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area == 0:
-            continue
-        diameter = np.sqrt(4 * area / np.pi)
-        if diameter < min_radius_auto:
-            continue
+# Bild mit Punkten
+rgb_color = tuple(int(color_picker.lstrip("#")[i:i+2],16) for i in (0,2,4))
+bgr_color = rgb_color[::-1]
+marked = draw_points(img_array, all_points, color=bgr_color, thickness=thickness)
 
-        perimeter = cv2.arcLength(cnt, True)
-        roundness = (4 * np.pi * area) / (perimeter ** 2 + 1e-6)
-        if len(cnt) >= 5:
-            ellipse = cv2.fitEllipse(cnt)
-            a = max(ellipse[1]) / 2
-            b = min(ellipse[1]) / 2
-            exzentrizitaet = np.sqrt(1 - (b ** 2 / a ** 2))
-        else:
-            exzentrizitaet = 0
+st.image(marked, caption=f"Markierte Objekte: {len(all_points)}", use_column_width=True)
 
-        mask = np.zeros(gray.shape, np.uint8)
-        cv2.drawContours(mask, [cnt], -1, 255, -1)
-        mean_color = cv2.mean(cv2.cvtColor(img_np, cv2.COLOR_RGB2HSV), mask=mask)
-        h, s, v, _ = mean_color
+# Feedback speichern (lernen)
+st.markdown("### Lernen speichern")
+label = st.text_input("Label / Notiz")
+if st.button("💾 Speichern"):
+    # Einfacher Lern-Eintrag: HSV-Bereich automatisch anhand Klickpunkte
+    if st.session_state["points"]:
+        points_rgb = [img_array[p["y"],p["x"]] for p in st.session_state["points"]]
+        points_hsv = [cv2.cvtColor(np.uint8([[c]]), cv2.COLOR_RGB2HSV)[0][0] for c in points_rgb]
+        lower_hsv = np.min(points_hsv, axis=0).tolist()
+        upper_hsv = np.max(points_hsv, axis=0).tolist()
+        db.append({"lower_hsv": lower_hsv, "upper_hsv": upper_hsv, "label": label, "timestamp": int(time.time())})
+        save_db(db)
+        st.success("Gelernt und in DB gespeichert!")
 
-        param = {
-            "durchmesser": diameter,
-            "farbe_h": h,
-            "farbe_s": s,
-            "farbe_v": v,
-            "flaeche": area,
-            "rundheit": roundness,
-            "exzentrizitaet": exzentrizitaet
-        }
+# CSV Export
+if all_points:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["x","y","radius"])
+    for p in all_points:
+        writer.writerow([p["x"],p["y"],p.get("radius",0)])
+    st.download_button("📥 Punkte als CSV", data=buf.getvalue().encode("utf-8"), file_name="punkte.csv", mime="text/csv")
 
-        if passt_zu_gelernten(param):
-            count_auto += 1
-            cv2.drawContours(img_display, [cnt], -1, (0, 255, 0), 2)
-
-    # ================================
-    # Anzeige
-    # ================================
-    st.image(img_display, caption=f"Automatisch erkannte Flecke: {count_auto}", use_column_width=True)
-    st.write(f"📦 Gelerntes Profil: {len(fleck_db)} Fleck-Typen gespeichert.")
-    if st.button("🗑 Datenbank leeren"):
-        fleck_db = []
-        with open(DB_FILE, "w") as f:
-            json.dump(fleck_db, f)
-        st.warning("Datenbank geleert.")
+# Reset
+if st.button("🔄 Alle Punkte zurücksetzen"):
+    st.session_state["points"] = []
