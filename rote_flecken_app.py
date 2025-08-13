@@ -10,7 +10,7 @@ import csv
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
     HAVE_CLICK = True
-except:
+except ImportError:
     HAVE_CLICK = False
 
 st.set_page_config(page_title="🖌️ Objekte-Korrektur", layout="wide")
@@ -39,12 +39,14 @@ if uploaded_file:
         coords = streamlit_image_coordinates(img, key="coords")
         if coords:
             x, y = coords["x"], coords["y"]
+            # Prüfen, ob Klick in bestehendem Punkt -> löschen
             removed = False
             for i, (px, py) in enumerate(st.session_state["points"]):
                 if (px - x)**2 + (py - y)**2 <= radius**2:
                     st.session_state["points"].pop(i)
                     removed = True
                     break
+            # Falls nicht gelöscht, neuen Punkt hinzufügen
             if not removed:
                 st.session_state["points"].append((x, y))
 
