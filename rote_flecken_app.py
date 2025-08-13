@@ -13,46 +13,45 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file:
-    # PIL Bild laden
-    img = Image.open(uploaded_file).convert("RGB")
-    img_np = np.array(img)
+    # Bild laden
+    pil = Image.open(uploaded_file).convert("RGB")
+    img_np = np.array(pil)
 
-    # PNG Bytes erstellen für Canvas
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    img_bytes = img_byte_arr.getvalue()
+    # PNG-Bytes erzeugen für Canvas
+    buf = io.BytesIO()
+    pil.save(buf, format="PNG")
+    buf.seek(0)
+    pil_for_canvas = Image.open(buf)
 
     st.sidebar.header("Einstellungen für Markierung")
-    circle_radius = st.sidebar.slider("Radius der Markierungen (px)", 5, 50, 15)
-    circle_color = st.sidebar.color_picker("Farbe der Markierung", "#00FF00")
-    line_width = st.sidebar.slider("Linienstärke", 1, 10, 2)
+    radius = st.sidebar.slider("Radius der Markierungen (px)", 5, 50, 15)
+    color = st.sidebar.color_picker("Farbe der Markierung", "#00FF00")
+    thickness = st.sidebar.slider("Linienstärke", 1, 10, 2)
 
     st.subheader("Markiere die Objekte")
 
-    # Canvas mit PNG-Bytes als Hintergrund
     canvas_result = st_canvas(
-        fill_color="",  
-        stroke_width=line_width,
-        stroke_color=circle_color,
-        background_image=Image.open(io.BytesIO(img_bytes)),
+        fill_color="",
+        stroke_width=thickness,
+        stroke_color=color,
+        background_image=pil_for_canvas,
         update_streamlit=True,
-        height=img_np.shape[0],
-        width=img_np.shape[1],
+        height=min(800, img_np.shape[0]),
+        width=min(800, img_np.shape[1]),
         drawing_mode="circle",
         key="canvas"
     )
 
-    # Objekte zählen
     count = 0
-    if canvas_result.json_data is not None:
+    if canvas_result.json_data:
         objects = canvas_result.json_data["objects"]
         count = len(objects)
 
     st.markdown(f"### Anzahl markierter Objekte: **{count}**")
 
     # CSV Download
-    import csv
     if count > 0:
+        import csv
         csv_buf = io.StringIO()
         writer = csv.writer(csv_buf)
         writer.writerow(["X", "Y", "Radius"])
