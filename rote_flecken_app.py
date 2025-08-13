@@ -1,10 +1,11 @@
 import streamlit as st
+from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
 import cv2
 
 st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
-st.title("🖌 Mensch & Maschine Team Workflow (Direkt auf Bild)")
+st.title("🖌 Interaktive Kreise & Polygone direkt auf Bild")
 
 # ------------------------
 # Bild-Upload
@@ -24,7 +25,8 @@ if uploaded_file:
     # ------------------------
     # Zeichenmodus
     # ------------------------
-    mode = st.sidebar.radio("Zeichenmodus", ("Punkt/Kreis", "Polygon"))
+    mode = st.sidebar.radio("Zeichenmodus", ("Kreis setzen", "Polygon zeichnen"))
+    drawing_mode = "point" if mode=="Kreis setzen" else "polygon"
 
     # ------------------------
     # Session State
@@ -32,35 +34,57 @@ if uploaded_file:
     if "points" not in st.session_state:
         st.session_state.points = []  # für Kreise
     if "polygons" not in st.session_state:
-        st.session_state.polygons = []  # für Polygone
+        st.session_state.polygons = []  # Liste von Polygonen
 
     # ------------------------
-    # Eingabe-Klicks erfassen
+    # Canvas zum Erfassen von Klicks
     # ------------------------
-    st.subheader("Bild-Klicks erfassen (x,y)")
-    col1, col2 = st.columns(2)
-    with col1:
-        x = st.number_input("X-Koordinate", min_value=0, max_value=width-1, value=width//2)
-        y = st.number_input("Y-Koordinate", min_value=0, max_value=height-1, value=height//2)
-        if st.button("Kreis setzen"):
-            st.session_state.points.append((x,y))
-    with col2:
-        st.write("Polygone manuell eingeben (nur Demo, später interaktiv möglich)")
+    canvas_result = st_canvas(
+        fill_color=f"rgba(0,255,0,0.3)",
+        stroke_color=f"rgba(255,0,0,0.6)",
+        stroke_width=2,
+        background_color=None,  # transparent, Bild separat
+        update_streamlit=True,
+        height=height,
+        width=width,
+        drawing_mode=drawing_mode,
+        key="canvas"
+    )
 
     # ------------------------
-    # Overlay erzeugen
+    # Objekte aus Canvas auslesen
+    # ------------------------
+    if canvas_result.json_data is not None:
+        objects = canvas_result.json_data["objects"]
+        new_points = []
+        new_polygons = []
+        for obj in objects:
+            if obj["type"] == "point":
+                x, y = obj["left"], obj["top"]
+                if (x,y) not in st.session_state.points:
+                    new_points.append((x,y))
+            elif obj["type"] == "polygon":
+                pts = [(p["x"], p["y"]) for p in obj["path"]]
+                if pts not in st.session_state.polygons:
+                    new_polygons.append(pts)
+        st.session_state.points.extend(new_points)
+        st.session_state.polygons.extend(new_polygons)
+
+    # ------------------------
+    # Overlay auf Bild zeichnen
     # ------------------------
     overlay = img_np.copy()
 
     # Kreise
-    for px, py in st.session_state.points:
-        cv2.circle(overlay, (int(px), int(py)), radius, (0,255,0), -1)  # gefüllt Grün
+    for x, y in st.session_state.points:
+        cv2.circle(overlay, (int(x), int(y)), radius, (0,255,0), -1)
 
     # Polygone
     for poly in st.session_state.polygons:
         pts = np.array(poly, np.int32).reshape((-1,1,2))
         cv2.polylines(overlay, [pts], isClosed=True, color=(255,0,0), thickness=2)
+        cv2.fillPoly(overlay, [pts], (255,0,0,50))  # leicht transparent
 
-    st.image(overlay, caption="Marker direkt auf Bild", use_column_width=True)
+    st.image(overlay, caption="Interaktive Marker direkt auf Bild", use_column_width=True)
     st.write(f"Anzahl Kreise: {len(st.session_state.points)}")
     st.write(f"Anzahl Polygone: {len(st.session_state.polygons)}")
