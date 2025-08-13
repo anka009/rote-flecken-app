@@ -1,23 +1,23 @@
-# app.py — Interaktiver Objekte-Zähler mit Klick-Korrektur
+# app_single_view.py — Interaktive Korrektur in einem Bild
 import streamlit as st
 from PIL import Image
 import numpy as np
+import cv2
 import io
 import csv
-import cv2
 
 # Klick-Erfassung
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
     HAVE_CLICK = True
-except Exception:
+except:
     HAVE_CLICK = False
 
-st.set_page_config(page_title="🖌️ Interaktiver Objekte-Zähler", layout="wide")
-st.title("🖌️ Interaktiver Objekte-Zähler — Stufe 3.1")
+st.set_page_config(page_title="🖌️ Objekte-Korrektur", layout="wide")
+st.title("🖌️ Interaktive Korrektur im Einzelbild")
 
 # Sidebar Einstellungen
-st.sidebar.header("Einstellungen für Markierung")
+st.sidebar.header("Einstellungen")
 radius = st.sidebar.slider("Radius der Markierungen (px)", 1, 50, 10)
 color_picker = st.sidebar.color_picker("Farbe der Markierung", "#ff0000")
 line_thickness = st.sidebar.slider("Linienstärke", 1, 10, 2)
@@ -25,24 +25,20 @@ line_thickness = st.sidebar.slider("Linienstärke", 1, 10, 2)
 # Upload
 uploaded_file = st.file_uploader("Bild hochladen (PNG, JPG, JPEG, TIFF/TIF)", type=["png","jpg","jpeg","tif","tiff"])
 if uploaded_file:
-    # Bild laden und in RGB konvertieren
     img = Image.open(uploaded_file).convert("RGB")
-    
-    # Optional: skalieren, falls sehr groß
     max_size = (1024, 1024)
     img.thumbnail(max_size, Image.Resampling.LANCZOS)
 
-    # Session-State für Punkte
     if "points" not in st.session_state:
         st.session_state["points"] = []
 
-    st.write("**Markiere die Objekte:** Klicke, um Punkte hinzuzufügen, klicke auf bestehende Punkte, um sie zu löschen.")
+    st.write("**Korrektur:** Klicke auf bestehenden Punkt zum Löschen oder auf leeren Bereich zum Hinzufügen.")
 
+    # Klick-Logik
     if HAVE_CLICK:
         coords = streamlit_image_coordinates(img, key="coords")
         if coords:
             x, y = coords["x"], coords["y"]
-            # Prüfen, ob Klick auf existierenden Punkt -> löschen
             removed = False
             for i, (px, py) in enumerate(st.session_state["points"]):
                 if (px - x)**2 + (py - y)**2 <= radius**2:
@@ -52,7 +48,7 @@ if uploaded_file:
             if not removed:
                 st.session_state["points"].append((x, y))
 
-    # Bild mit Markierungen erstellen
+    # Bild mit Markierungen
     img_array = np.array(img)
     marked = img_array.copy()
     rgb_color = tuple(int(color_picker.lstrip("#")[i:i+2], 16) for i in (0,2,4))
@@ -60,12 +56,10 @@ if uploaded_file:
     for (x, y) in st.session_state["points"]:
         cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
 
-    # Zwei Spalten: Original + Markiert
-    col1, col2 = st.columns(2)
-    col1.image(img, caption="Original", use_column_width=True)
-    col2.image(marked, caption=f"Markierte Objekte: {len(st.session_state['points'])}", use_column_width=True)
+    # Anzeige + Zähler
+    st.image(marked, caption=f"Markierte Objekte: {len(st.session_state['points'])}", use_column_width=True)
 
-    # Punkte zurücksetzen
+    # Zurücksetzen
     if st.button("🔄 Alle Punkte zurücksetzen"):
         st.session_state["points"] = []
 
