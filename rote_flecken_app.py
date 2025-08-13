@@ -1,15 +1,11 @@
-# stufe_2_1_app.py — Lernender Flecken-Zähler mit Klickkorrektur
+# app_stufe2_2.py — Lernende Flecken-Zählung mit Side-by-Side Korrektur
 import streamlit as st
 import cv2
 import numpy as np
 from PIL import Image
-import json
-import os
-import io
-import csv
-import time
+import json, os, io, time, csv
 
-# Klick-Dependency
+# optional: klickerfassung
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
     HAVE_CLICK = True
@@ -17,7 +13,7 @@ except Exception:
     HAVE_CLICK = False
 
 # ----------------- Dateien -----------------
-SETTINGS_FILE = "settings.json"   # speichert letzte Parameter
+SETTINGS_FILE = "settings.json"   # speichert letzte gute HSV+radius Einstellungen
 FEEDBACK_FILE = "feedback.json"   # speichert Korrekturen / Historie
 
 # ----------------- Hilfsfunktionen -----------------
@@ -26,7 +22,7 @@ def load_settings():
         try:
             with open(SETTINGS_FILE, "r") as f:
                 return json.load(f)
-        except:
+        except Exception:
             return {}
     return {}
 
@@ -40,7 +36,7 @@ def append_feedback(entry):
         try:
             with open(FEEDBACK_FILE, "r") as f:
                 db = json.load(f)
-        except:
+        except Exception:
             db = []
     db.append(entry)
     with open(FEEDBACK_FILE, "w") as f:
@@ -78,20 +74,11 @@ def points_to_csv_bytes(points):
     return buf.getvalue().encode("utf-8")
 
 # ----------------- Streamlit UI -----------------
-st.set_page_config(page_title="Lernender Flecken-Zähler", layout="wide")
-st.title("🧠 Lernender Flecken-Zähler — Stufe 2.1 Klickkorrektur")
+st.set_page_config(page_title="Lernender Flecken-Zähler Stufe 2.2", layout="wide")
+st.title("🧠 Lernender Flecken-Zähler — Stufe 2.2")
 
 # Load last settings
 last_settings = load_settings()
-default_lower_h = last_settings.get("lower_h", 0)
-default_upper_h = last_settings.get("upper_h", 10)
-default_lower_s = last_settings.get("lower_s", 70)
-default_upper_s = last_settings.get("upper_s", 255)
-default_lower_v = last_settings.get("lower_v", 50)
-default_upper_v = last_settings.get("upper_v", 255)
-default_min_radius = last_settings.get("min_radius", 5)
-default_min_area = last_settings.get("min_area", 20)
-
 tabs = st.tabs(["🔍 Analyse", "✏️ Korrektur / Lernen", "⚙️ Einstellungen"])
 
 # ---------------- Tab: Analyse ----------------
@@ -104,16 +91,17 @@ with tabs[0]:
 
     pil = Image.open(uploaded).convert("RGB")
     img_rgb = np.array(pil)
+    st.sidebar.header("Erkennungs-Parameter (Slider)")
 
-    st.sidebar.header("Erkennungs-Parameter")
-    lower_h = st.sidebar.slider("Lower H", 0, 179, int(default_lower_h))
-    upper_h = st.sidebar.slider("Upper H", 0, 179, int(default_upper_h))
-    lower_s = st.sidebar.slider("Lower S", 0, 255, int(default_lower_s))
-    upper_s = st.sidebar.slider("Upper S", 0, 255, int(default_upper_s))
-    lower_v = st.sidebar.slider("Lower V", 0, 255, int(default_lower_v))
-    upper_v = st.sidebar.slider("Upper V", 0, 255, int(default_upper_v))
-    min_radius_px = st.sidebar.slider("Min Radius (px)", 1, 200, int(default_min_radius))
-    min_area_px = st.sidebar.slider("Min Contour Area (px)", 1, 10000, int(default_min_area))
+    lower_h = st.sidebar.slider("Lower H (0-179)", 0, 179, int(last_settings.get("lower_h", 0)))
+    upper_h = st.sidebar.slider("Upper H (0-179)", 0, 179, int(last_settings.get("upper_h", 10)))
+    lower_s = st.sidebar.slider("Lower S", 0, 255, int(last_settings.get("lower_s", 70)))
+    upper_s = st.sidebar.slider("Upper S", 0, 255, int(last_settings.get("upper_s", 255)))
+    lower_v = st.sidebar.slider("Lower V", 0, 255, int(last_settings.get("lower_v", 50)))
+    upper_v = st.sidebar.slider("Upper V", 0, 255, int(last_settings.get("upper_v", 255)))
+
+    min_radius_px = st.sidebar.slider("Min Radius (px)", 1, 200, int(last_settings.get("min_radius", 5)))
+    min_area_px = st.sidebar.slider("Min Contour Area (px)", 1, 10000, int(last_settings.get("min_area", 20)))
 
     mask = hsv_mask_from_sliders(img_rgb, lower_h, upper_h, lower_s, upper_s, lower_v, upper_v)
     points = detect_blobs_from_mask(mask, min_radius_px, min_area_px)
@@ -124,9 +112,9 @@ with tabs[0]:
 
     col1, col2 = st.columns(2)
     col1.image(Image.fromarray(mask_rgb), caption="Mask (HSV Filter)", use_container_width=True)
-    col2.image(Image.fromarray(marked), caption="Erkannte Flecken (rot)", use_container_width=True)
+    col2.image(Image.fromarray(marked), caption=f"Erkannte Flecken (rot)", use_container_width=True)
 
-    # Save in session_state
+    # Store in session for correction tab
     st.session_state["last_image"] = img_rgb
     st.session_state["detected_points"] = points
     st.session_state["params_being_used"] = {
@@ -144,12 +132,14 @@ with tabs[1]:
         st.stop()
 
     img_rgb = st.session_state["last_image"]
-    detected = st.session_state.get("detected_points", [])
+    detected = st.session_state.get("detected_points", []).copy()
 
-    # Click-based correction
+    # Klickkorrektur
     if HAVE_CLICK:
-        st.info("Klicke auf existierenden Punkt zum Löschen oder auf leeren Bereich zum Hinzufügen.")
-        coords = streamlit_image_coordinates(Image.fromarray(draw_points_on_image(img_rgb, detected, color=(255,0,0))), key="coords")
+        coords = streamlit_image_coordinates(
+            Image.fromarray(draw_points_on_image(img_rgb, detected, color=(255,0,0))),
+            key="coords"
+        )
         if coords:
             cx, cy = coords["x"], coords["y"]
             removed = False
@@ -163,16 +153,15 @@ with tabs[1]:
                 default_r = st.session_state["params_being_used"].get("min_radius", 10)
                 detected.append((int(cx), int(cy), int(default_r), float(np.pi*default_r*default_r)))
                 st.success(f"Punkt bei ({cx},{cy}) hinzugefügt.")
-    else:
-        st.info("streamlit_image_coordinates nicht installiert. Verwende manuelle Eingaben.")
 
-    # Show all points together (red = automatisch, green = manuell)
+    # Side-by-Side
+    marked_auto = draw_points_on_image(img_rgb, st.session_state.get("detected_points", []), color=(255,0,0), thickness=2)
+    marked_final = draw_points_on_image(img_rgb, detected, color=(0,255,0), thickness=2)
+    col1, col2 = st.columns(2)
+    col1.image(Image.fromarray(marked_auto), caption="Automatisch erkannt (rot)", use_container_width=True)
+    col2.image(Image.fromarray(marked_final), caption="Korrigiert (grün)", use_container_width=True)
+
     st.write(f"Aktuelle Flecken nach Korrektur: **{len(detected)}**")
-    preview = draw_points_on_image(img_rgb, detected, color=(0,255,0), thickness=2)
-    st.image(Image.fromarray(preview), caption="Alle Punkte (grün)", use_container_width=True)
-
-    # Save feedback
-    st.markdown("### Speichern / Lernen")
     save_label = st.text_input("Label / Notiz für dieses Feedback (optional)", value="")
     if st.button("💾 Korrektur & Parameter speichern"):
         params = st.session_state.get("params_being_used", {})
@@ -187,6 +176,7 @@ with tabs[1]:
             "note": save_label
         }
         append_feedback(entry)
+        st.session_state["detected_points"] = detected
         st.success("Korrektur + Parameter gespeichert.")
 
     if detected:
@@ -195,15 +185,20 @@ with tabs[1]:
 
 # ---------------- Tab: Einstellungen ----------------
 with tabs[2]:
-    st.header("Einstellungen & Feedback")
-    st.write("Einstellungen:", SETTINGS_FILE)
-    st.write("Feedback:", FEEDBACK_FILE)
+    st.header("Einstellungen & Speicher")
+    st.write("Gespeicherte Einstellungsdatei:", SETTINGS_FILE)
+    st.write("Feedback-Datei:", FEEDBACK_FILE)
     if os.path.exists(SETTINGS_FILE):
-        st.json(json.load(open(SETTINGS_FILE)))
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                st.json(json.load(f))
+        except Exception:
+            st.write("Fehler beim Lesen der settings.json")
     if os.path.exists(FEEDBACK_FILE):
         try:
-            cnt = len(json.load(open(FEEDBACK_FILE)))
-        except:
+            with open(FEEDBACK_FILE, "r") as f:
+                cnt = len(json.load(f))
+        except Exception:
             cnt = "?"
         st.write(f"Feedback-Einträge: {cnt}")
 
