@@ -1,3 +1,4 @@
+# stufe_2_1_app.py — Lernender Flecken-Zähler mit Klickkorrektur
 import streamlit as st
 import cv2
 import numpy as np
@@ -7,6 +8,13 @@ import os
 import io
 import csv
 import time
+
+# Klick-Dependency
+try:
+    from streamlit_image_coordinates import streamlit_image_coordinates
+    HAVE_CLICK = True
+except Exception:
+    HAVE_CLICK = False
 
 # ----------------- Dateien -----------------
 SETTINGS_FILE = "settings.json"   # speichert letzte Parameter
@@ -57,8 +65,8 @@ def detect_blobs_from_mask(mask, min_radius_px=5, min_area_px=20):
 
 def draw_points_on_image(img_rgb, points, color=(255,0,0), thickness=2):
     out = img_rgb.copy()
-    for x, y, r, _ in points:
-        cv2.circle(out, (x, y), int(r), color, thickness)
+    for x,y,r,_ in points:
+        cv2.circle(out, (x,y), int(r), color, thickness)
     return out
 
 def points_to_csv_bytes(points):
@@ -69,9 +77,9 @@ def points_to_csv_bytes(points):
         writer.writerow([p[0], p[1], p[2]])
     return buf.getvalue().encode("utf-8")
 
-# ----------------- Streamlit -----------------
-st.set_page_config(page_title="Stufe 2.0: Lernender Flecken-Zähler", layout="wide")
-st.title("🧠 Lernender Flecken-Zähler — Stufe 2.0")
+# ----------------- Streamlit UI -----------------
+st.set_page_config(page_title="Lernender Flecken-Zähler", layout="wide")
+st.title("🧠 Lernender Flecken-Zähler — Stufe 2.1 Klickkorrektur")
 
 # Load last settings
 last_settings = load_settings()
@@ -84,20 +92,20 @@ default_upper_v = last_settings.get("upper_v", 255)
 default_min_radius = last_settings.get("min_radius", 5)
 default_min_area = last_settings.get("min_area", 20)
 
-# ----------------- Tabs -----------------
-tabs = st.tabs(["🔍 Analyse", "✏️ Korrektur & Lernen", "⚙️ Einstellungen"])
+tabs = st.tabs(["🔍 Analyse", "✏️ Korrektur / Lernen", "⚙️ Einstellungen"])
 
-# ---------------- Tab 1: Analyse ----------------
+# ---------------- Tab: Analyse ----------------
 with tabs[0]:
     st.header("Analyse")
-    uploaded = st.file_uploader("Bild hochladen (PNG/JPG/TIF/TIFF)", type=["png","jpg","jpeg","tif","tiff"])
+    uploaded = st.file_uploader("Bild (png/jpg/jpeg/tif/tiff)", type=["png","jpg","jpeg","tif","tiff"])
     if not uploaded:
         st.info("Bitte zuerst ein Bild hochladen.")
         st.stop()
+
     pil = Image.open(uploaded).convert("RGB")
     img_rgb = np.array(pil)
 
-    st.sidebar.header("Parameter")
+    st.sidebar.header("Erkennungs-Parameter")
     lower_h = st.sidebar.slider("Lower H", 0, 179, int(default_lower_h))
     upper_h = st.sidebar.slider("Upper H", 0, 179, int(default_upper_h))
     lower_s = st.sidebar.slider("Lower S", 0, 255, int(default_lower_s))
@@ -105,96 +113,93 @@ with tabs[0]:
     lower_v = st.sidebar.slider("Lower V", 0, 255, int(default_lower_v))
     upper_v = st.sidebar.slider("Upper V", 0, 255, int(default_upper_v))
     min_radius_px = st.sidebar.slider("Min Radius (px)", 1, 200, int(default_min_radius))
-    min_area_px = st.sidebar.slider("Min Area (px)", 1, 10000, int(default_min_area))
+    min_area_px = st.sidebar.slider("Min Contour Area (px)", 1, 10000, int(default_min_area))
 
-    # Mask + Detection
     mask = hsv_mask_from_sliders(img_rgb, lower_h, upper_h, lower_s, upper_s, lower_v, upper_v)
     points = detect_blobs_from_mask(mask, min_radius_px, min_area_px)
-    st.write(f"Gefundene Flecken: **{len(points)}**")
+    st.write(f"Gefundene Flecken (vor Korrektur): **{len(points)}**")
 
     mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
     marked = draw_points_on_image(img_rgb, points, color=(255,0,0), thickness=2)
 
     col1, col2 = st.columns(2)
-    col1.image(Image.fromarray(mask_rgb), caption="Mask", use_container_width=True)
+    col1.image(Image.fromarray(mask_rgb), caption="Mask (HSV Filter)", use_container_width=True)
     col2.image(Image.fromarray(marked), caption="Erkannte Flecken (rot)", use_container_width=True)
 
-    # save to session
+    # Save in session_state
     st.session_state["last_image"] = img_rgb
     st.session_state["detected_points"] = points
-    st.session_state["params"] = {
+    st.session_state["params_being_used"] = {
         "lower_h": lower_h, "upper_h": upper_h,
         "lower_s": lower_s, "upper_s": upper_s,
         "lower_v": lower_v, "upper_v": upper_v,
         "min_radius": min_radius_px, "min_area": min_area_px
     }
 
-# ---------------- Tab 2: Korrektur & Lernen ----------------
+# ---------------- Tab: Korrektur / Lernen ----------------
 with tabs[1]:
     st.header("Korrektur & Lernen")
     if "last_image" not in st.session_state:
         st.info("Bitte zuerst im Tab 'Analyse' ein Bild hochladen und analysieren.")
         st.stop()
+
     img_rgb = st.session_state["last_image"]
     detected = st.session_state.get("detected_points", [])
 
-    # show current points
-    st.write("Erkannte + hinzugefügte Punkte (rot: automatisch, grün: manuell korrigiert)")
+    # Click-based correction
+    if HAVE_CLICK:
+        st.info("Klicke auf existierenden Punkt zum Löschen oder auf leeren Bereich zum Hinzufügen.")
+        coords = streamlit_image_coordinates(Image.fromarray(draw_points_on_image(img_rgb, detected, color=(255,0,0))), key="coords")
+        if coords:
+            cx, cy = coords["x"], coords["y"]
+            removed = False
+            for i, (px, py, pr, area) in enumerate(detected):
+                if (px - cx)**2 + (py - cy)**2 <= (pr+5)**2:
+                    detected.pop(i)
+                    removed = True
+                    st.success(f"Punkt bei ({px},{py}) gelöscht.")
+                    break
+            if not removed:
+                default_r = st.session_state["params_being_used"].get("min_radius", 10)
+                detected.append((int(cx), int(cy), int(default_r), float(np.pi*default_r*default_r)))
+                st.success(f"Punkt bei ({cx},{cy}) hinzugefügt.")
+    else:
+        st.info("streamlit_image_coordinates nicht installiert. Verwende manuelle Eingaben.")
+
+    # Show all points together (red = automatisch, green = manuell)
+    st.write(f"Aktuelle Flecken nach Korrektur: **{len(detected)}**")
     preview = draw_points_on_image(img_rgb, detected, color=(0,255,0), thickness=2)
-    st.image(Image.fromarray(preview), use_container_width=True)
+    st.image(Image.fromarray(preview), caption="Alle Punkte (grün)", use_container_width=True)
 
-    # manuelle Korrektur
-    st.markdown("### Punkt hinzufügen / entfernen")
-    col1, col2 = st.columns(2)
-    with col1:
-        new_x = st.number_input("X hinzufügen", 0, img_rgb.shape[1]-1, step=1)
-        new_y = st.number_input("Y hinzufügen", 0, img_rgb.shape[0]-1, step=1)
-        new_r = st.number_input("Radius (px)", 1, 200, value=st.session_state["params"]["min_radius"])
-        if st.button("Punkt hinzufügen"):
-            detected.append((int(new_x), int(new_y), int(new_r), float(np.pi*new_r*new_r)))
-            st.success(f"Punkt bei ({new_x},{new_y}) hinzugefügt.")
-
-    with col2:
-        if detected:
-            idx = st.selectbox("Punkt auswählen zum Entfernen", list(range(len(detected))))
-            if st.button("Punkt entfernen"):
-                removed = detected.pop(idx)
-                st.info(f"Punkt {removed[0:3]} entfernt.")
-
-    st.session_state["detected_points"] = detected
-    st.write(f"Aktuelle Punkte nach Korrektur: **{len(detected)}**")
-    preview_after = draw_points_on_image(img_rgb, detected, color=(0,255,0), thickness=2)
-    st.image(Image.fromarray(preview_after), caption="Vorschau nach Korrektur", use_container_width=True)
-
-    # Speichern + Feedback
-    st.markdown("### Feedback speichern / Lernen")
+    # Save feedback
+    st.markdown("### Speichern / Lernen")
     save_label = st.text_input("Label / Notiz für dieses Feedback (optional)", value="")
     if st.button("💾 Korrektur & Parameter speichern"):
-        params = st.session_state.get("params", {})
-        save_settings(params)
+        params = st.session_state.get("params_being_used", {})
+        settings_to_save = {**params, "label": save_label, "timestamp": int(time.time())}
+        save_settings(settings_to_save)
+
         entry = {
             "image_name": getattr(uploaded, "name", "uploaded_image"),
             "params_used": params,
-            "final_points": [(int(x), int(y), int(r)) for (x,y,r,_) in detected],
+            "final_points": [(int(x), int(y), int(r)) for (x,y,r,area) in detected],
             "count": len(detected),
-            "note": save_label,
-            "timestamp": int(time.time())
+            "note": save_label
         }
         append_feedback(entry)
         st.success("Korrektur + Parameter gespeichert.")
 
-    # CSV Download
     if detected:
         csv_bytes = points_to_csv_bytes(detected)
         st.download_button("📥 Finale Punkte als CSV herunterladen", data=csv_bytes, file_name="final_points.csv", mime="text/csv")
 
-# ---------------- Tab 3: Einstellungen ----------------
+# ---------------- Tab: Einstellungen ----------------
 with tabs[2]:
     st.header("Einstellungen & Feedback")
-    st.write("Settings-Datei:", SETTINGS_FILE)
-    st.write("Feedback-Datei:", FEEDBACK_FILE)
+    st.write("Einstellungen:", SETTINGS_FILE)
+    st.write("Feedback:", FEEDBACK_FILE)
     if os.path.exists(SETTINGS_FILE):
-        st.json(load_settings())
+        st.json(json.load(open(SETTINGS_FILE)))
     if os.path.exists(FEEDBACK_FILE):
         try:
             cnt = len(json.load(open(FEEDBACK_FILE)))
