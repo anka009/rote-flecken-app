@@ -1,11 +1,10 @@
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
 import cv2
 
 st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
-st.title("🖌 Interaktive Kreise & Polygone direkt auf Bild")
+st.title("🖌 Marker direkt auf Bild (OpenCV)")
 
 # ------------------------
 # Bild-Upload
@@ -26,52 +25,44 @@ if uploaded_file:
     # Zeichenmodus
     # ------------------------
     mode = st.sidebar.radio("Zeichenmodus", ("Kreis setzen", "Polygon zeichnen"))
-    drawing_mode = "point" if mode=="Kreis setzen" else "polygon"
 
     # ------------------------
     # Session State
     # ------------------------
     if "points" not in st.session_state:
         st.session_state.points = []  # für Kreise
+    if "current_polygon" not in st.session_state:
+        st.session_state.current_polygon = []  # Polygon in Bearbeitung
     if "polygons" not in st.session_state:
-        st.session_state.polygons = []  # Liste von Polygonen
+        st.session_state.polygons = []  # fertige Polygone
 
     # ------------------------
-    # Canvas zum Erfassen von Klicks
+    # Kreise setzen
     # ------------------------
-    canvas_result = st_canvas(
-        fill_color=f"rgba(0,255,0,0.3)",
-        stroke_color=f"rgba(255,0,0,0.6)",
-        stroke_width=2,
-        background_color=None,  # transparent, Bild separat
-        update_streamlit=True,
-        height=height,
-        width=width,
-        drawing_mode=drawing_mode,
-        key="canvas"
-    )
+    st.subheader("Kreise setzen")
+    col1, col2 = st.columns(2)
+    with col1:
+        x = st.number_input("X-Koordinate", min_value=0, max_value=width-1, value=width//2)
+        y = st.number_input("Y-Koordinate", min_value=0, max_value=height-1, value=height//2)
+        if st.button("Kreis hinzufügen"):
+            st.session_state.points.append((x,y))
 
     # ------------------------
-    # Objekte aus Canvas auslesen
+    # Polygon zeichnen
     # ------------------------
-    if canvas_result.json_data is not None:
-        objects = canvas_result.json_data["objects"]
-        new_points = []
-        new_polygons = []
-        for obj in objects:
-            if obj["type"] == "point":
-                x, y = obj["left"], obj["top"]
-                if (x,y) not in st.session_state.points:
-                    new_points.append((x,y))
-            elif obj["type"] == "polygon":
-                pts = [(p["x"], p["y"]) for p in obj["path"]]
-                if pts not in st.session_state.polygons:
-                    new_polygons.append(pts)
-        st.session_state.points.extend(new_points)
-        st.session_state.polygons.extend(new_polygons)
+    with col2:
+        st.write("Polygon-Modus")
+        px = st.number_input("Polygon X", min_value=0, max_value=width-1, value=width//2, key="px")
+        py = st.number_input("Polygon Y", min_value=0, max_value=height-1, value=height//2, key="py")
+        if st.button("Punkt zum Polygon"):
+            st.session_state.current_polygon.append((px,py))
+        if st.button("Polygon fertig"):
+            if st.session_state.current_polygon:
+                st.session_state.polygons.append(st.session_state.current_polygon.copy())
+                st.session_state.current_polygon = []
 
     # ------------------------
-    # Overlay auf Bild zeichnen
+    # Overlay auf Bild
     # ------------------------
     overlay = img_np.copy()
 
@@ -85,6 +76,11 @@ if uploaded_file:
         cv2.polylines(overlay, [pts], isClosed=True, color=(255,0,0), thickness=2)
         cv2.fillPoly(overlay, [pts], (255,0,0,50))  # leicht transparent
 
-    st.image(overlay, caption="Interaktive Marker direkt auf Bild", use_column_width=True)
+    # aktuelles Polygon (in Bearbeitung)
+    if st.session_state.current_polygon:
+        pts = np.array(st.session_state.current_polygon, np.int32).reshape((-1,1,2))
+        cv2.polylines(overlay, [pts], isClosed=False, color=(0,0,255), thickness=2)
+
+    st.image(overlay, caption="Marker direkt auf Bild", use_column_width=True)
     st.write(f"Anzahl Kreise: {len(st.session_state.points)}")
     st.write(f"Anzahl Polygone: {len(st.session_state.polygons)}")
