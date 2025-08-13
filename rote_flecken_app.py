@@ -1,11 +1,12 @@
-# app.py — Interaktiver Objekte-Zähler mit TIFF-Unterstützung
+# app.py — Interaktiver Objekte-Zähler mit Klick-Korrektur
 import streamlit as st
 from PIL import Image
 import numpy as np
 import io
 import csv
+import cv2
 
-# optional: Klick-Erfassung
+# Klick-Erfassung
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
     HAVE_CLICK = True
@@ -13,7 +14,7 @@ except Exception:
     HAVE_CLICK = False
 
 st.set_page_config(page_title="🖌️ Interaktiver Objekte-Zähler", layout="wide")
-st.title("🖌️ Interaktiver Objekte-Zähler — Stufe 3.0")
+st.title("🖌️ Interaktiver Objekte-Zähler — Stufe 3.1")
 
 # Sidebar Einstellungen
 st.sidebar.header("Einstellungen für Markierung")
@@ -35,25 +36,30 @@ if uploaded_file:
     if "points" not in st.session_state:
         st.session_state["points"] = []
 
-    st.write("**Markiere die Objekte:** Klicke auf das Bild, um Punkte hinzuzufügen.")
-    
-    # Interaktive Bildanzeige und Klick
+    st.write("**Markiere die Objekte:** Klicke, um Punkte hinzuzufügen, klicke auf bestehende Punkte, um sie zu löschen.")
+
     if HAVE_CLICK:
         coords = streamlit_image_coordinates(img, key="coords")
         if coords:
             x, y = coords["x"], coords["y"]
-            # Punkt hinzufügen
-            st.session_state["points"].append((x, y))
-    
-    # Bild mit Markierungen anzeigen
+            # Prüfen, ob Klick auf existierenden Punkt -> löschen
+            removed = False
+            for i, (px, py) in enumerate(st.session_state["points"]):
+                if (px - x)**2 + (py - y)**2 <= radius**2:
+                    st.session_state["points"].pop(i)
+                    removed = True
+                    break
+            if not removed:
+                st.session_state["points"].append((x, y))
+
+    # Bild mit Markierungen erstellen
     img_array = np.array(img)
-    import cv2
     marked = img_array.copy()
     rgb_color = tuple(int(color_picker.lstrip("#")[i:i+2], 16) for i in (0,2,4))
     bgr_color = rgb_color[::-1]
     for (x, y) in st.session_state["points"]:
-        cv2.circle(marked, (x,y), radius, bgr_color, line_thickness)
-    
+        cv2.circle(marked, (x, y), radius, bgr_color, line_thickness)
+
     # Zwei Spalten: Original + Markiert
     col1, col2 = st.columns(2)
     col1.image(img, caption="Original", use_column_width=True)
