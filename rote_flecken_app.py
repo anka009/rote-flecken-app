@@ -2,7 +2,7 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
-from skimage.draw import polygon2mask
+import cv2
 
 st.set_page_config(page_title="Hybrid Bildanalyse", layout="wide")
 st.title("🖌 Mensch & Maschine Team Workflow")
@@ -12,9 +12,10 @@ st.title("🖌 Mensch & Maschine Team Workflow")
 # ------------------------
 uploaded_file = st.sidebar.file_uploader("📁 Bild auswählen", type=["png", "jpg", "jpeg"])
 if uploaded_file:
-    img = Image.open(uploaded_file)
+    # Bild stabil laden & in RGB konvertieren
+    img = Image.open(uploaded_file).convert("RGB")
     st.image(img, caption="Originalbild", use_column_width=True)
-
+    
     # ------------------------
     # Canvas-Einstellungen
     # ------------------------
@@ -31,37 +32,31 @@ if uploaded_file:
     )
 
     # ------------------------
-    # Punkte/Polygone speichern
+    # Polygone speichern
     # ------------------------
     if "polygons" not in st.session_state:
         st.session_state.polygons = []
 
     if canvas_result.json_data is not None:
         objects = canvas_result.json_data["objects"]
-        # Neue Polygone extrahieren
         new_polygons = []
         for obj in objects:
             if obj["type"] == "polygon":
                 points = [(p["x"], p["y"]) for p in obj["path"]]
                 new_polygons.append(points)
-
-        # Alle neuen Polygone abspeichern, nur wenn es neue gibt
-        if new_polygons and new_polygons != st.session_state.polygons:
+        
+        if new_polygons != st.session_state.polygons:
             st.session_state.polygons = new_polygons
 
     st.write(f"Anzahl markierter Strukturen: {len(st.session_state.polygons)}")
 
     # ------------------------
-    # Maske aus Polygonen erzeugen
+    # Maske aus Polygonen erzeugen (OpenCV)
     # ------------------------
     if st.button("Maschine analysiert markierte Strukturen"):
-        img_np = np.array(img)
-        mask = np.zeros(img_np.shape[:2], dtype=bool)
-
+        mask = np.zeros((img.height, img.width), dtype=np.uint8)
         for poly in st.session_state.polygons:
-            poly_mask = polygon2mask(img_np.shape[:2], poly)
-            mask = mask | poly_mask
-
-        st.image(mask.astype(np.uint8)*255, caption="Maske der markierten Strukturen", use_column_width=True)
+            pts = np.array(poly, np.int32).reshape((-1, 1, 2))
+            cv2.fillPoly(mask, [pts], 255)
+        st.image(mask, caption="Maske der markierten Strukturen", use_column_width=True)
         st.success("Maschine kann nun ähnliche Strukturen im Bild suchen!")
-
