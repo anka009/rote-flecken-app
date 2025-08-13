@@ -2,11 +2,11 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
+import io
 
 st.set_page_config(page_title="Interaktiver Objekte-Zähler", layout="wide")
 st.title("🖌️ Interaktiver Objekte-Zähler")
 
-# -------------------- Bild-Upload --------------------
 uploaded_file = st.file_uploader(
     "Bild hochladen (PNG, JPG, JPEG, TIFF/TIF)",
     type=["png", "jpg", "jpeg", "tif", "tiff"]
@@ -17,6 +17,11 @@ if uploaded_file:
     img = Image.open(uploaded_file).convert("RGB")
     img_np = np.array(img)
 
+    # PNG Bytes erstellen für Canvas
+    img_byte_arr = io.BytesIO()
+    img.save(img_byte_arr, format='PNG')
+    img_bytes = img_byte_arr.getvalue()
+
     st.sidebar.header("Einstellungen für Markierung")
     circle_radius = st.sidebar.slider("Radius der Markierungen (px)", 5, 50, 15)
     circle_color = st.sidebar.color_picker("Farbe der Markierung", "#00FF00")
@@ -24,12 +29,12 @@ if uploaded_file:
 
     st.subheader("Markiere die Objekte")
 
-    # -------------------- Canvas --------------------
+    # Canvas mit PNG-Bytes als Hintergrund
     canvas_result = st_canvas(
-        fill_color="",  # Keine Füllung
+        fill_color="",  
         stroke_width=line_width,
         stroke_color=circle_color,
-        background_image=img,
+        background_image=Image.open(io.BytesIO(img_bytes)),
         update_streamlit=True,
         height=img_np.shape[0],
         width=img_np.shape[1],
@@ -37,7 +42,7 @@ if uploaded_file:
         key="canvas"
     )
 
-    # -------------------- Objekte zählen --------------------
+    # Objekte zählen
     count = 0
     if canvas_result.json_data is not None:
         objects = canvas_result.json_data["objects"]
@@ -45,10 +50,8 @@ if uploaded_file:
 
     st.markdown(f"### Anzahl markierter Objekte: **{count}**")
 
-    # -------------------- Optional: markierte Punkte als CSV --------------------
-    import io
+    # CSV Download
     import csv
-
     if count > 0:
         csv_buf = io.StringIO()
         writer = csv.writer(csv_buf)
