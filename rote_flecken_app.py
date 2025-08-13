@@ -1,4 +1,4 @@
-# app_stufe2_2.py — Lernender Flecken-Zähler mit stabiler Korrektur
+# stufe3_app.py — Lernender Flecken-Zähler 3.0
 import streamlit as st
 import cv2
 import numpy as np
@@ -7,27 +7,21 @@ import json
 import os
 import io
 import csv
-import time
 
-# optional: klickerfassung
 try:
     from streamlit_image_coordinates import streamlit_image_coordinates
     HAVE_CLICK = True
 except Exception:
     HAVE_CLICK = False
 
-# ----------------- Dateien -----------------
 SETTINGS_FILE = "settings.json"
 FEEDBACK_FILE = "feedback.json"
 
 # ----------------- Hilfsfunktionen -----------------
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
+        with open(SETTINGS_FILE, "r") as f:
+            return json.load(f)
     return {}
 
 def save_settings(d):
@@ -77,24 +71,27 @@ def points_to_csv_bytes(points):
         writer.writerow([p[0], p[1], p[2]])
     return buf.getvalue().encode("utf-8")
 
-# ----------------- Streamlit UI -----------------
-st.set_page_config(page_title="Lernender Flecken-Zähler 2.2", layout="wide")
-st.title("🧠 Lernender Flecken-Zähler 2.2 — Korrektur stabil")
+# ----------------- Streamlit -----------------
+st.set_page_config(page_title="Lernender Flecken-Zähler 3.0", layout="wide")
+st.title("🧠 Lernender Flecken-Zähler 3.0")
 
-# Load last settings
+# Lade letzte Einstellungen
 last_settings = load_settings()
-default_lower_h = last_settings.get("lower_h", 0)
-default_upper_h = last_settings.get("upper_h", 10)
-default_lower_s = last_settings.get("lower_s", 70)
-default_upper_s = last_settings.get("upper_s", 255)
-default_lower_v = last_settings.get("lower_v", 50)
-default_upper_v = last_settings.get("upper_v", 255)
-default_min_radius = last_settings.get("min_radius", 5)
-default_min_area = last_settings.get("min_area", 20)
+default_params = {
+    "lower_h": last_settings.get("lower_h",0),
+    "upper_h": last_settings.get("upper_h",10),
+    "lower_s": last_settings.get("lower_s",70),
+    "upper_s": last_settings.get("upper_s",255),
+    "lower_v": last_settings.get("lower_v",50),
+    "upper_v": last_settings.get("upper_v",255),
+    "min_radius": last_settings.get("min_radius",5),
+    "min_area": last_settings.get("min_area",20)
+}
 
+# Tabs: Analyse / Korrektur / Einstellungen
 tabs = st.tabs(["🔍 Analyse", "✏️ Korrektur / Lernen", "⚙️ Einstellungen"])
 
-# ---------------- Tab: Analyse ----------------
+# ---------------- Tab Analyse ----------------
 with tabs[0]:
     st.header("Analyse")
     uploaded = st.file_uploader("Bild (png/jpg/jpeg/tif/tiff)", type=["png","jpg","jpeg","tif","tiff"])
@@ -104,39 +101,34 @@ with tabs[0]:
 
     pil = Image.open(uploaded).convert("RGB")
     img_rgb = np.array(pil)
+
     st.sidebar.header("Erkennungs-Parameter")
-    lower_h = st.sidebar.slider("Lower H", 0, 179, int(default_lower_h))
-    upper_h = st.sidebar.slider("Upper H", 0, 179, int(default_upper_h))
-    lower_s = st.sidebar.slider("Lower S", 0, 255, int(default_lower_s))
-    upper_s = st.sidebar.slider("Upper S", 0, 255, int(default_upper_s))
-    lower_v = st.sidebar.slider("Lower V", 0, 255, int(default_lower_v))
-    upper_v = st.sidebar.slider("Upper V", 0, 255, int(default_upper_v))
-    min_radius_px = st.sidebar.slider("Min Radius (px)", 1, 200, int(default_min_radius))
-    min_area_px = st.sidebar.slider("Min Area (px)", 1, 10000, int(default_min_area))
+    lower_h = st.sidebar.slider("Lower H", 0,179, default_params["lower_h"])
+    upper_h = st.sidebar.slider("Upper H", 0,179, default_params["upper_h"])
+    lower_s = st.sidebar.slider("Lower S", 0,255, default_params["lower_s"])
+    upper_s = st.sidebar.slider("Upper S", 0,255, default_params["upper_s"])
+    lower_v = st.sidebar.slider("Lower V", 0,255, default_params["lower_v"])
+    upper_v = st.sidebar.slider("Upper V", 0,255, default_params["upper_v"])
+    min_radius_px = st.sidebar.slider("Min Radius", 1,200, default_params["min_radius"])
+    min_area_px = st.sidebar.slider("Min Area",1,10000, default_params["min_area"])
 
     mask = hsv_mask_from_sliders(img_rgb, lower_h, upper_h, lower_s, upper_s, lower_v, upper_v)
-    points = detect_blobs_from_mask(mask, min_radius_px, min_area_px)
-    st.write(f"Gefundene Flecken: **{len(points)}**")
+    auto_points = detect_blobs_from_mask(mask, min_radius_px, min_area_px)
+    st.write(f"Automatisch gefundene Flecken: **{len(auto_points)}**")
 
     mask_rgb = cv2.cvtColor(mask, cv2.COLOR_GRAY2RGB)
-    marked = draw_points_on_image(img_rgb, points, color=(255,0,0), thickness=2)
+    marked_auto = draw_points_on_image(img_rgb, auto_points, color=(255,0,0), thickness=2)
 
-    col1, col2, col3 = st.columns(3)
-    col1.image(Image.fromarray(img_rgb), caption="Original", use_container_width=True)
-    col2.image(Image.fromarray(mask_rgb), caption="Mask (HSV)", use_container_width=True)
-    col3.image(Image.fromarray(marked), caption="Erkannte Flecken", use_container_width=True)
+    col1, col2 = st.columns(2)
+    col1.image(Image.fromarray(mask_rgb), caption="Mask (HSV Filter)", use_container_width=True)
+    col2.image(Image.fromarray(marked_auto), caption="Erkannte Flecken (rot)", use_container_width=True)
 
-    # persist for correction tab
+    # Speicher für Korrektur-Tab
     st.session_state["last_image"] = img_rgb
-    st.session_state["detected_points"] = points
-    st.session_state["params_being_used"] = {
-        "lower_h": lower_h, "upper_h": upper_h,
-        "lower_s": lower_s, "upper_s": upper_s,
-        "lower_v": lower_v, "upper_v": upper_v,
-        "min_radius": min_radius_px, "min_area": min_area_px
-    }
+    st.session_state["auto_points"] = auto_points
+    st.session_state["manual_points"] = []
 
-# ---------------- Tab: Korrektur / Lernen ----------------
+# ---------------- Tab Korrektur / Lernen ----------------
 with tabs[1]:
     st.header("Korrektur & Lernen")
     if "last_image" not in st.session_state:
@@ -144,96 +136,92 @@ with tabs[1]:
         st.stop()
 
     img_rgb = st.session_state["last_image"]
-    detected = st.session_state.get("detected_points", [])
-    if "corrected_points" not in st.session_state:
-        st.session_state["corrected_points"] = detected.copy()
+    auto_points = st.session_state.get("auto_points",[])
+    manual_points = st.session_state.get("manual_points",[])
 
-    corrected = st.session_state["corrected_points"]
+    # Kombiniertes Bild
+    combined_disp = draw_points_on_image(img_rgb, auto_points, color=(255,0,0), thickness=2)
+    combined_disp = draw_points_on_image(combined_disp, manual_points, color=(0,255,0), thickness=2)
+    st.image(Image.fromarray(combined_disp), caption="Rot=Auto, Grün=Manuell", use_container_width=True)
 
-    # Click-based correction
     if HAVE_CLICK:
-        disp = draw_points_on_image(img_rgb, corrected, color=(0,255,0), thickness=2)
-        coords = streamlit_image_coordinates(Image.fromarray(disp), key="coords")
+        st.info("Klick auf roten Punkt: löschen; Klick auf leeren Bereich: hinzufügen")
+        coords = streamlit_image_coordinates(Image.fromarray(combined_disp), key="coords_corr")
         if coords:
             cx, cy = coords["x"], coords["y"]
-            removed = False
-            for i, (px, py, pr, area) in enumerate(corrected):
-                if (px - cx)**2 + (py - cy)**2 <= (pr+5)**2:
-                    corrected.pop(i)
-                    removed = True
-                    st.success(f"Punkt ({px},{py}) gelöscht")
+            clicked = False
+            # Prüfe manuelle Punkte zuerst
+            for i, (px,py,pr,area) in enumerate(manual_points):
+                if (px-cx)**2+(py-cy)**2 <= (pr+5)**2:
+                    manual_points.pop(i)
+                    st.success(f"Manueller Punkt bei ({px},{py}) gelöscht")
+                    clicked = True
                     break
-            if not removed:
-                default_r = st.session_state["params_being_used"].get("min_radius", 10)
-                corrected.append((int(cx), int(cy), int(default_r), float(np.pi*default_r*default_r)))
-                st.success(f"Punkt ({cx},{cy}) hinzugefügt")
-        st.session_state["corrected_points"] = corrected
+            if not clicked:
+                # Prüfe auto Punkte -> löschen nicht, nur add?
+                default_r = 10
+                manual_points.append((cx,cy,default_r,float(np.pi*default_r*default_r)))
+                st.success(f"Neuer manueller Punkt bei ({cx},{cy}) hinzugefügt")
+        st.session_state["manual_points"] = manual_points
     else:
-        st.info("Interaktive Klickkorrektur nicht verfügbar.")
-    
-    # Anzeige nebeneinander
-    col1, col2 = st.columns(2)
-    col1.image(Image.fromarray(draw_points_on_image(img_rgb, detected, color=(255,0,0), thickness=2)),
-               caption="Vor Korrektur", use_container_width=True)
-    col2.image(Image.fromarray(draw_points_on_image(img_rgb, corrected, color=(0,255,0), thickness=2)),
-               caption="Nach Korrektur", use_container_width=True)
-    st.write(f"Aktuelle Punkte nach Korrektur: **{len(corrected)}**")
+        st.info("streamlit_image_coordinates nicht installiert -> nur manuelle Eingabe")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_x = st.number_input("X hinzufügen",0,img_rgb.shape[1]-1, step=1)
+            new_y = st.number_input("Y hinzufügen",0,img_rgb.shape[0]-1, step=1)
+            new_r = st.number_input("Radius",1,200,value=10)
+            if st.button("Punkt hinzufügen"):
+                manual_points.append((new_x,new_y,new_r,float(np.pi*new_r*new_r)))
+        with col2:
+            if manual_points:
+                idx = st.selectbox("Punkt entfernen", list(range(len(manual_points))))
+                if st.button("Entfernen"):
+                    removed = manual_points.pop(idx)
+                    st.info(f"Punkt {removed[0:3]} entfernt")
+
+    # Vorschau + CSV Export
+    final_points = auto_points + manual_points
+    st.write(f"Endgültige Flecken nach Korrektur: **{len(final_points)}**")
+    preview = draw_points_on_image(img_rgb, final_points, color=(0,255,0), thickness=2)
+    st.image(Image.fromarray(preview), caption="Alle Flecken (Grün)")
+
+    csv_bytes = points_to_csv_bytes(final_points)
+    st.download_button("📥 Finale Punkte CSV herunterladen", data=csv_bytes, file_name="final_points.csv", mime="text/csv")
 
     # Feedback speichern
-    save_label = st.text_input("Label / Notiz für Feedback", value="")
-    if st.button("💾 Korrektur & Parameter speichern"):
-        params = st.session_state.get("params_being_used", {})
+    label = st.text_input("Label / Notiz für Feedback", value="")
+    if st.button("💾 Feedback & Parameter speichern"):
         settings_to_save = {
-            "lower_h": int(params.get("lower_h", default_lower_h)),
-            "upper_h": int(params.get("upper_h", default_upper_h)),
-            "lower_s": int(params.get("lower_s", default_lower_s)),
-            "upper_s": int(params.get("upper_s", default_upper_s)),
-            "lower_v": int(params.get("lower_v", default_lower_v)),
-            "upper_v": int(params.get("upper_v", default_upper_v)),
-            "min_radius": int(params.get("min_radius", default_min_radius)),
-            "min_area": int(params.get("min_area", default_min_area)),
-            "label": save_label,
-            "timestamp": int(time.time())
+            "lower_h": lower_h, "upper_h": upper_h,
+            "lower_s": lower_s, "upper_s": upper_s,
+            "lower_v": lower_v, "upper_v": upper_v,
+            "min_radius": min_radius_px, "min_area": min_area_px,
+            "label": label
         }
         save_settings(settings_to_save)
         entry = {
-            "image_name": getattr(uploaded, "name", "uploaded_image"),
-            "params_used": params,
-            "final_points": [(int(x), int(y), int(r)) for (x,y,r,_) in corrected],
-            "count": len(corrected),
-            "note": save_label
+            "image_name": getattr(uploaded,"name","uploaded_image"),
+            "params": settings_to_save,
+            "auto_points": auto_points,
+            "manual_points": manual_points,
+            "count_total": len(final_points),
+            "note": label
         }
         append_feedback(entry)
-        st.success("Feedback + Parameter gespeichert!")
+        st.success("Feedback gespeichert!")
 
-    # CSV Download
-    if corrected:
-        csv_bytes = points_to_csv_bytes(corrected)
-        st.download_button("📥 Finale Punkte als CSV herunterladen", data=csv_bytes,
-                           file_name="final_points.csv", mime="text/csv")
-
-# ---------------- Tab: Einstellungen ----------------
+# ---------------- Tab Einstellungen ----------------
 with tabs[2]:
-    st.header("Einstellungen & Speicher")
-    st.write("Gespeicherte Einstellungsdatei:", SETTINGS_FILE)
+    st.header("Einstellungen & Feedback")
+    st.write("Gespeicherte Einstellungen:", SETTINGS_FILE)
     st.write("Feedback-Datei:", FEEDBACK_FILE)
     if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r") as f:
-                st.json(json.load(f))
-        except Exception:
-            st.write("Fehler beim Lesen der settings.json")
+        with open(SETTINGS_FILE,"r") as f:
+            st.json(json.load(f))
     if os.path.exists(FEEDBACK_FILE):
-        try:
-            with open(FEEDBACK_FILE, "r") as f:
-                cnt = len(json.load(f))
-        except Exception:
-            cnt = "?"
-        st.write(f"Feedback-Einträge: {cnt}")
-
-    if st.button("❌ Alle gespeicherten Einstellungen & Feedback löschen"):
-        if os.path.exists(SETTINGS_FILE):
-            os.remove(SETTINGS_FILE)
-        if os.path.exists(FEEDBACK_FILE):
-            os.remove(FEEDBACK_FILE)
+        with open(FEEDBACK_FILE,"r") as f:
+            st.write(f"{len(json.load(f))} Feedback-Einträge")
+    if st.button("❌ Alles löschen"):
+        if os.path.exists(SETTINGS_FILE): os.remove(SETTINGS_FILE)
+        if os.path.exists(FEEDBACK_FILE): os.remove(FEEDBACK_FILE)
         st.experimental_rerun()
