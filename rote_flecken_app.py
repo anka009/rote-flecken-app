@@ -27,7 +27,7 @@ if uploaded_file:
 
     # Bild skalieren, max 800x800 für Canvas
     max_size = (800, 800)
-    img.thumbnail(max_size, Image.ANTIALIAS)
+    img.thumbnail(max_size, Image.Resampling.LANCZOS)
     
     img_np = np.array(img)
 
